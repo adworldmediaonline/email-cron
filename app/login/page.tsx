@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useMutation } from "@tanstack/react-query"
 import { authClient } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,21 +14,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { useState } from "react"
-import { useMutation } from "@tanstack/react-query"
 
-export default function HomePage() {
+export default function LoginPage() {
   const router = useRouter()
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session, isPending: sessionPending } = authClient.useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isPending && session?.user) {
+    if (!sessionPending && session?.user) {
       router.push("/dashboard")
     }
-  }, [session, isPending, router])
+  }, [session, sessionPending, router])
 
   const loginMutation = useMutation({
     mutationFn: async (data: { email: string; password: string }) => {
@@ -58,7 +57,7 @@ export default function HomePage() {
     loginMutation.mutate({ email, password })
   }
 
-  if (isPending) {
+  if (sessionPending) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>

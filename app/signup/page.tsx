@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useMutation } from "@tanstack/react-query"
 import { authClient } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,27 +14,30 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { useState } from "react"
-import { useMutation } from "@tanstack/react-query"
 
-export default function HomePage() {
+export default function SignupPage() {
   const router = useRouter()
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session, isPending: sessionPending } = authClient.useSession()
+  const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isPending && session?.user) {
+    if (!sessionPending && session?.user) {
       router.push("/dashboard")
     }
-  }, [session, isPending, router])
+  }, [session, sessionPending, router])
 
-  const loginMutation = useMutation({
-    mutationFn: async (data: { email: string; password: string }) => {
-      const result = await authClient.signIn.email(data)
+  const signupMutation = useMutation({
+    mutationFn: async (data: {
+      name: string
+      email: string
+      password: string
+    }) => {
+      const result = await authClient.signUp.email(data)
       if (result.error) {
-        throw new Error(result.error.message || "Login failed")
+        throw new Error(result.error.message || "Signup failed")
       }
       return result
     },
@@ -50,15 +54,20 @@ export default function HomePage() {
     e.preventDefault()
     setError(null)
 
-    if (!email || !password) {
+    if (!name || !email || !password) {
       setError("Please fill in all fields")
       return
     }
 
-    loginMutation.mutate({ email, password })
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters")
+      return
+    }
+
+    signupMutation.mutate({ name, email, password })
   }
 
-  if (isPending) {
+  if (sessionPending) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>
@@ -74,9 +83,9 @@ export default function HomePage() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Login</CardTitle>
+          <CardTitle>Sign Up</CardTitle>
           <CardDescription>
-            Enter your email and password to access your account
+            Create a new account to get started
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -88,6 +97,19 @@ export default function HomePage() {
             )}
 
             <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="John Doe"
+                required
+                disabled={signupMutation.isPending}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
@@ -96,7 +118,7 @@ export default function HomePage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 required
-                disabled={loginMutation.isPending}
+                disabled={signupMutation.isPending}
               />
             </div>
 
@@ -109,25 +131,26 @@ export default function HomePage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                disabled={loginMutation.isPending}
+                disabled={signupMutation.isPending}
+                minLength={8}
               />
             </div>
 
             <Button
               type="submit"
               className="w-full"
-              disabled={loginMutation.isPending}
+              disabled={signupMutation.isPending}
             >
-              {loginMutation.isPending ? "Logging in..." : "Login"}
+              {signupMutation.isPending ? "Creating account..." : "Sign Up"}
             </Button>
 
             <div className="text-center text-sm text-muted-foreground">
-              Don't have an account?{" "}
+              Already have an account?{" "}
               <a
-                href="/signup"
+                href="/login"
                 className="text-primary hover:underline font-medium"
               >
-                Sign up
+                Login
               </a>
             </div>
           </form>
