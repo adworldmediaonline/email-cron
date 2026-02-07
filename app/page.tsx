@@ -11,6 +11,7 @@ export default async function Page() {
 
   return <>
     <ComponentExample />
+    {/*  */}
     <pre>{JSON.stringify(posts, null, 2)}</pre>
   </>;
 }
