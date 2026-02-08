@@ -7,7 +7,6 @@ export const createEmailCampaignSchema = z.object({
     .array(
       z.object({
         recipientEmail: z.string().email("Invalid recipient email"),
-        recipientName: z.string().max(100).nullable().optional(),
       })
     )
     .min(1, "At least one recipient is required"),

@@ -96,9 +96,8 @@ export default function EditEmailPage() {
             defaultValues={{
               subject: campaign.subject,
               body: campaign.body,
-              recipients: campaign.recipients?.map((r: { recipientEmail: string; recipientName: string | null }) => ({
+              recipients: campaign.recipients?.map((r: { recipientEmail: string }) => ({
                 recipientEmail: r.recipientEmail,
-                recipientName: r.recipientName,
               })) || [],
               scheduledAt: campaign.scheduledAt ? new Date(campaign.scheduledAt) : null,
             }}

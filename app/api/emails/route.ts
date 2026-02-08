@@ -80,7 +80,6 @@ export async function POST(request: NextRequest) {
         recipients: {
           create: validatedData.recipients.map((r) => ({
             recipientEmail: r.recipientEmail,
-            recipientName: r.recipientName || null,
           })),
         },
       },

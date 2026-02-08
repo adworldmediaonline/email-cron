@@ -2,12 +2,13 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { useForm, useFieldArray } from "react-hook-form"
+import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { TiptapEditor } from "@/components/emails/tiptap-editor"
@@ -21,29 +22,59 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import { X, Plus } from "lucide-react"
 
-const recipientSchema = z.object({
-  recipientEmail: z.string().email("Invalid email address"),
-  recipientName: z.string().optional(),
-})
+// Helper function to parse emails from textarea input
+function parseEmails(input: string): string[] {
+  if (!input.trim()) return []
+  
+  // Split by commas, newlines, or spaces, then filter and trim
+  return input
+    .split(/[,\n\s]+/)
+    .map(email => email.trim())
+    .filter(email => email.length > 0)
+}
+
+// Helper function to validate email format
+function isValidEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailRegex.test(email)
+}
 
 const campaignSchema = z.object({
   subject: z.string().min(1, "Subject is required"),
   body: z.string().min(1, "Body is required"),
   scheduledAt: z.string().datetime().optional().nullable(),
-  recipients: z.array(recipientSchema).min(1, "At least one recipient is required"),
+  recipientsText: z.string().min(1, "At least one recipient is required").refine(
+    (text) => {
+      const emails = parseEmails(text)
+      return emails.length > 0 && emails.every(email => isValidEmail(email))
+    },
+    {
+      message: "Please enter valid email addresses separated by commas or new lines",
+    }
+  ),
 })
 
 type CampaignFormData = z.infer<typeof campaignSchema>
 
 async function createCampaign(data: CampaignFormData) {
+  // Parse recipients from textarea and transform to API format
+  const emails = parseEmails(data.recipientsText)
+  const recipients = emails.map(email => ({
+    recipientEmail: email,
+  }))
+
   const response = await fetch("/api/emails", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      subject: data.subject,
+      body: data.body,
+      scheduledAt: data.scheduledAt,
+      recipients,
+    }),
   })
 
   if (!response.ok) {
@@ -55,7 +86,13 @@ async function createCampaign(data: CampaignFormData) {
 }
 
 interface CampaignFormProps {
-  defaultValues?: Partial<CampaignFormData>
+  defaultValues?: {
+    subject?: string
+    body?: string
+    scheduledAt?: string | Date | null
+    recipientsText?: string
+    recipients?: Array<{ recipientEmail: string }>
+  }
   onSubmit?: (data: CampaignFormData) => Promise<void>
   onSuccess?: () => void
 }
@@ -68,7 +105,6 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
   const {
     register,
     handleSubmit,
-    control,
     watch,
     setValue,
     formState: { errors, isSubmitting },
@@ -78,13 +114,12 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
       subject: defaultValues?.subject || "",
       body: defaultValues?.body || "",
       scheduledAt: defaultValues?.scheduledAt ? new Date(defaultValues.scheduledAt).toISOString() : null,
-      recipients: defaultValues?.recipients || [{ recipientEmail: "", recipientName: "" }],
+      recipientsText: defaultValues?.recipientsText 
+        ? defaultValues.recipientsText
+        : defaultValues?.recipients 
+          ? defaultValues.recipients.map(r => r.recipientEmail).join("\n")
+          : "",
     },
-  })
-
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "recipients",
   })
 
   const body = watch("body")
@@ -117,7 +152,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
         <CardHeader>
           <CardTitle>Campaign Details</CardTitle>
           <CardDescription>
-            Enter the subject and content for your email campaign
+            Enter the subject for your email campaign
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -133,9 +168,48 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
               <p className="text-sm text-destructive">{errors.subject.message}</p>
             )}
           </div>
+        </CardContent>
+      </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Recipients</CardTitle>
+          <CardDescription>
+            Enter email addresses separated by commas or new lines. You can paste multiple emails at once.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="body">Email Body</Label>
+            <Label htmlFor="recipientsText">Email Addresses</Label>
+            <Textarea
+              id="recipientsText"
+              placeholder="recipient1@example.com, recipient2@example.com&#10;recipient3@example.com&#10;recipient4@example.com"
+              rows={8}
+              {...register("recipientsText")}
+              aria-invalid={errors.recipientsText ? "true" : "false"}
+              className="font-mono text-sm"
+            />
+            {errors.recipientsText && (
+              <p className="text-sm text-destructive">
+                {errors.recipientsText.message}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Tip: You can paste a list of emails separated by commas, spaces, or new lines. Invalid emails will be highlighted.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Email Body</CardTitle>
+          <CardDescription>
+            Write the content for your email campaign
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
             <TiptapEditor
               content={body}
               onChange={(content) => setValue("body", content)}
@@ -145,75 +219,6 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
               <p className="text-sm text-destructive">{errors.body.message}</p>
             )}
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Recipients</CardTitle>
-          <CardDescription>
-            Add email addresses to send this campaign to
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {fields.map((field, index) => (
-            <div key={field.id} className="flex gap-2">
-              <div className="flex-1 space-y-2">
-                <Label htmlFor={`recipients.${index}.recipientEmail`}>
-                  Email {index + 1}
-                </Label>
-                <Input
-                  id={`recipients.${index}.recipientEmail`}
-                  type="email"
-                  placeholder="recipient@example.com"
-                  {...register(`recipients.${index}.recipientEmail`)}
-                  aria-invalid={
-                    errors.recipients?.[index]?.recipientEmail ? "true" : "false"
-                  }
-                />
-                {errors.recipients?.[index]?.recipientEmail && (
-                  <p className="text-sm text-destructive">
-                    {errors.recipients[index]?.recipientEmail?.message}
-                  </p>
-                )}
-              </div>
-              <div className="flex-1 space-y-2">
-                <Label htmlFor={`recipients.${index}.recipientName`}>
-                  Name (Optional)
-                </Label>
-                <Input
-                  id={`recipients.${index}.recipientName`}
-                  placeholder="John Doe"
-                  {...register(`recipients.${index}.recipientName`)}
-                />
-              </div>
-              {fields.length > 1 && (
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => remove(index)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
-          {errors.recipients && errors.recipients.root && (
-            <p className="text-sm text-destructive">
-              {errors.recipients.root.message}
-            </p>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => append({ recipientEmail: "", recipientName: "" })}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Recipient
-          </Button>
         </CardContent>
       </Card>
 

@@ -93,66 +93,6 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={async () => {
-              try {
-                const response = await fetch("/api/emails/test", { method: "GET" })
-                const data = await response.json()
-                if (data.success) {
-                  alert("SMTP connection verified successfully!")
-                } else {
-                  alert(`SMTP verification failed: ${data.error}\n\nCheck your .env file for SMTP configuration.`)
-                }
-              } catch (error) {
-                alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
-              }
-            }}
-          >
-            Test SMTP
-          </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              try {
-                // In development, we can call without secret
-                const response = await fetch("/api/emails/cron", { method: "GET" })
-                const data = await response.json()
-                if (data.success) {
-                  alert(`Cron Result:\nProcessed: ${data.processed || 0}\nSent: ${data.sent || 0}\nFailed: ${data.failed || 0}\n\n${data.message || "Check console for details"}`)
-                } else {
-                  alert(`Cron Error:\n${data.error || data.message || "Unknown error"}\n\n${data.message || ""}\n\nCheck CRON_SETUP.md for setup instructions.`)
-                }
-              } catch (error) {
-                alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
-              }
-            }}
-          >
-            Test Cron
-          </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              try {
-                const response = await fetch("/api/emails/cron/check", { method: "GET" })
-                const data = await response.json()
-                const diagnostics = data.diagnostics
-                const message = `Cron Configuration Check:\n\n` +
-                  `Environment: ${diagnostics.environment}\n` +
-                  `CRON_SECRET Configured: ${diagnostics.cronSecretConfigured ? "Yes" : "No"}\n` +
-                  `CRON_SECRET Length: ${diagnostics.cronSecretLength}\n` +
-                  `Auth Header Present: ${diagnostics.authHeaderPresent ? "Yes" : "No"}\n\n` +
-                  (diagnostics.recommendations.length > 0 
-                    ? `Recommendations:\n${diagnostics.recommendations.map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}`
-                    : "✅ Configuration looks good!")
-                alert(message)
-              } catch (error) {
-                alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
-              }
-            }}
-          >
-            Check Cron Config
-          </Button>
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -160,16 +100,18 @@ export default function DashboardPage() {
                 New Campaign
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Create Email Campaign</DialogTitle>
-                <DialogDescription>
+            <DialogContent className="sm:max-w-4xl max-w-[calc(100%-2rem)] max-h-[90vh] overflow-y-auto p-6">
+              <DialogHeader className="pb-4">
+                <DialogTitle className="text-2xl">Create Email Campaign</DialogTitle>
+                <DialogDescription className="text-base">
                   Create a new promotional email campaign
                 </DialogDescription>
               </DialogHeader>
-              <CampaignForm
-                onSuccess={() => setIsCreateDialogOpen(false)}
-              />
+              <div className="overflow-y-auto pr-2">
+                <CampaignForm
+                  onSuccess={() => setIsCreateDialogOpen(false)}
+                />
+              </div>
             </DialogContent>
           </Dialog>
           <Button

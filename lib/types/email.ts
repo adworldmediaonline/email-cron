@@ -50,7 +50,6 @@ export type CreateEmailCampaignInput = {
   senderName: string
   recipients: {
     recipientEmail: string
-    recipientName?: string | null
   }[]
   scheduledAt?: Date | null
 }
