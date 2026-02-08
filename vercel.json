@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/emails/cron",
+      "schedule": "*/1 * * * *"
+    }
+  ],
+  "functions": {
+    "app/api/emails/cron/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

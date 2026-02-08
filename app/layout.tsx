@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Outfit } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/lib/query-client";
+import { Toaster } from "sonner";
 
 const outfit = Outfit({subsets:['latin'],variable:'--font-sans'});
 
@@ -31,6 +32,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <QueryProvider>{children}</QueryProvider>
+        <Toaster />
       </body>
     </html>
   );

@@ -22,15 +22,16 @@ model Post {
 }
 
 model User {
-  id            String    @id
+  id            String          @id
   name          String
   email         String
-  emailVerified Boolean   @default(false)
+  emailVerified Boolean         @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
   sessions      Session[]
   accounts      Account[]
+  emailCampaigns EmailCampaign[]
 
   @@unique([email])
   @@map("user")
@@ -82,4 +83,55 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+enum EmailCampaignStatus {
+  draft
+  scheduled
+  sending
+  sent
+  failed
+}
+
+enum EmailRecipientStatus {
+  pending
+  sent
+  failed
+}
+
+model EmailCampaign {
+  id          String            @id @default(uuid())
+  subject     String
+  body        String
+  senderEmail String
+  senderName  String
+  status      EmailCampaignStatus @default(draft)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   User              @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  recipients  EmailRecipient[]
+
+  @@index([createdById])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("email_campaign")
+}
+
+model EmailRecipient {
+  id            String              @id @default(uuid())
+  campaignId    String
+  recipientEmail String
+  recipientName  String?
+  status        EmailRecipientStatus @default(pending)
+  sentAt        DateTime?
+  errorMessage  String?
+  createdAt     DateTime            @default(now())
+  campaign      EmailCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([status])
+  @@map("email_recipient")
 }
