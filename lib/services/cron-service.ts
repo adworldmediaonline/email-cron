@@ -18,85 +18,44 @@ export async function processScheduledEmails(): Promise<{
   // Limit to prevent overload
   const MAX_CAMPAIGNS_PER_RUN = 50
   
-  // Debug: Check what campaigns exist (always run debug to see what's in DB)
+  // Debug: Only run debug queries in development or when explicitly enabled
+  // This reduces load on Prisma Accelerate in production
+  const ENABLE_DEBUG = process.env.NODE_ENV === "development" || process.env.ENABLE_CRON_DEBUG === "true"
   let scheduledCampaignsDebug: Array<{ id: string; status: string; scheduledAt: Date | null; subject: string }> = []
-  try {
-    const allCampaigns = await prisma.emailCampaign.findMany({
-      select: {
-        id: true,
-        status: true,
-        scheduledAt: true,
-        subject: true,
-      },
-      take: 10,
-    })
-    console.log(`[Cron] 🔍 Debug: Found ${allCampaigns.length} total campaigns in database (showing first 10):`)
-    if (allCampaigns.length > 0) {
-      allCampaigns.forEach((c) => {
-        console.log(`[Cron]   - Campaign ${c.id}: status="${c.status}", scheduledAt=${c.scheduledAt?.toISOString() || "null"}, subject="${c.subject.substring(0, 30)}..."`)
+  
+  if (ENABLE_DEBUG) {
+    try {
+      // Lightweight debug query - only count scheduled campaigns
+      scheduledCampaignsDebug = await prisma.emailCampaign.findMany({
+        where: {
+          status: EmailCampaignStatus.SCHEDULED,
+        },
+        select: {
+          id: true,
+          status: true,
+          scheduledAt: true,
+          subject: true,
+        },
+        take: 5, // Limit to 5 for debug
       })
-    } else {
-      console.log(`[Cron]   - No campaigns found in database`)
-    }
-    
-    // Debug: Check scheduled campaigns specifically
-    scheduledCampaignsDebug = await prisma.emailCampaign.findMany({
-      where: {
-        status: EmailCampaignStatus.SCHEDULED,
-      },
-      select: {
-        id: true,
-        status: true,
-        scheduledAt: true,
-        subject: true,
-      },
-    })
-    console.log(`[Cron] 🔍 Debug: Found ${scheduledCampaignsDebug.length} campaigns with SCHEDULED status`)
-    if (scheduledCampaignsDebug.length > 0) {
-      scheduledCampaignsDebug.forEach((c) => {
-        const isReady = c.scheduledAt && c.scheduledAt <= now
-        console.log(`[Cron]   - Campaign ${c.id}: scheduledAt=${c.scheduledAt?.toISOString() || "null"}, ready=${isReady}, subject="${c.subject.substring(0, 30)}..."`)
-      })
-    }
-  } catch (debugError) {
-    // Retry once on connection errors (common with Prisma Accelerate)
-    if (debugError instanceof Error && debugError.message.includes("fetch failed")) {
-      console.log(`[Cron] ⚠️  Initial connection failed, retrying...`)
-      try {
-        await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
-        const retryCampaigns = await prisma.emailCampaign.findMany({
-          where: { status: EmailCampaignStatus.SCHEDULED },
-          select: { id: true, status: true, scheduledAt: true, subject: true },
+      console.log(`[Cron] 🔍 Debug: Found ${scheduledCampaignsDebug.length} campaigns with SCHEDULED status`)
+      if (scheduledCampaignsDebug.length > 0) {
+        scheduledCampaignsDebug.forEach((c) => {
+          const isReady = c.scheduledAt && c.scheduledAt <= now
+          console.log(`[Cron]   - Campaign ${c.id}: scheduledAt=${c.scheduledAt?.toISOString() || "null"}, ready=${isReady}, subject="${c.subject.substring(0, 30)}..."`)
         })
-        scheduledCampaignsDebug = retryCampaigns
-        console.log(`[Cron] 🔍 Debug (retry): Found ${scheduledCampaignsDebug.length} campaigns with SCHEDULED status`)
-      } catch (retryError) {
-        console.error(`[Cron] ❌ Retry also failed:`, retryError)
       }
-    } else {
-      console.error(`[Cron] ❌ Debug query failed:`, debugError)
+    } catch (debugError) {
+      // Silently skip debug queries if they fail (common with Prisma Accelerate limits)
+      // Only log if it's not a resource limit error
+      if (debugError instanceof Error && !debugError.message.includes("Worker exceeded resource limits")) {
+        console.error(`[Cron] ⚠️  Debug query failed:`, debugError.message)
+      }
     }
   }
   
-  const campaigns = (await prisma.emailCampaign.findMany({
-    where: {
-      status: EmailCampaignStatus.SCHEDULED,
-      scheduledAt: {
-        lte: now,
-      },
-    },
-    include: {
-      recipients: {
-        where: {
-          status: EmailRecipientStatus.PENDING,
-        },
-      },
-    },
-    take: MAX_CAMPAIGNS_PER_RUN,
-    orderBy: {
-      scheduledAt: "asc", // Process oldest first
-    },
-  })) as unknown as Array<{
+  // Main query - find campaigns ready to send
+  let campaigns: Array<{
     id: string
     status: EmailCampaignStatus
     scheduledAt: Date | null
@@ -108,12 +67,59 @@ export async function processScheduledEmails(): Promise<{
       recipientName: string | null
       status: EmailRecipientStatus
     }>
-  }>
+  }> = []
+  
+  try {
+    campaigns = (await prisma.emailCampaign.findMany({
+      where: {
+        status: EmailCampaignStatus.SCHEDULED,
+        scheduledAt: {
+          lte: now,
+        },
+      },
+      include: {
+        recipients: {
+          where: {
+            status: EmailRecipientStatus.PENDING,
+          },
+        },
+      },
+      take: MAX_CAMPAIGNS_PER_RUN,
+      orderBy: {
+        scheduledAt: "asc", // Process oldest first
+      },
+    })) as unknown as Array<{
+      id: string
+      status: EmailCampaignStatus
+      scheduledAt: Date | null
+      subject: string
+      body: string
+      recipients: Array<{
+        id: string
+        recipientEmail: string
+        recipientName: string | null
+        status: EmailRecipientStatus
+      }>
+    }>
+  } catch (queryError) {
+    // Handle Prisma Accelerate resource limit errors gracefully
+    if (queryError instanceof Error && queryError.message.includes("Worker exceeded resource limits")) {
+      console.error(`[Cron] ❌ Prisma Accelerate resource limit exceeded. Skipping this run.`)
+      return {
+        processed: 0,
+        sent: 0,
+        failed: 0,
+        errors: ["Prisma Accelerate resource limit exceeded"],
+      }
+    }
+    // Re-throw other errors
+    throw queryError
+  }
 
   if (campaigns.length === 0) {
     // Only log debug info if there are scheduled campaigns but none are ready
     // This reduces log noise when there are no campaigns at all
-    if (scheduledCampaignsDebug.length > 0) {
+    if (ENABLE_DEBUG && scheduledCampaignsDebug.length > 0) {
       console.log(`[Cron] Found ${scheduledCampaignsDebug.length} scheduled campaign(s), but none are ready yet (checked at ${now.toISOString()})`)
     }
     // Don't log every minute if there are no campaigns - too noisy
