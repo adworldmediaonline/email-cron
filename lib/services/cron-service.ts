@@ -59,7 +59,23 @@ export async function processScheduledEmails(): Promise<{
       })
     }
   } catch (debugError) {
-    console.error(`[Cron] ❌ Debug query failed:`, debugError)
+    // Retry once on connection errors (common with Prisma Accelerate)
+    if (debugError instanceof Error && debugError.message.includes("fetch failed")) {
+      console.log(`[Cron] ⚠️  Initial connection failed, retrying...`)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+        const retryCampaigns = await prisma.emailCampaign.findMany({
+          where: { status: EmailCampaignStatus.SCHEDULED },
+          select: { id: true, status: true, scheduledAt: true, subject: true },
+        })
+        scheduledCampaignsDebug = retryCampaigns
+        console.log(`[Cron] 🔍 Debug (retry): Found ${scheduledCampaignsDebug.length} campaigns with SCHEDULED status`)
+      } catch (retryError) {
+        console.error(`[Cron] ❌ Retry also failed:`, retryError)
+      }
+    } else {
+      console.error(`[Cron] ❌ Debug query failed:`, debugError)
+    }
   }
   
   const campaigns = (await prisma.emailCampaign.findMany({
