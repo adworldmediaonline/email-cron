@@ -12,8 +12,6 @@ export async function processScheduledEmails(): Promise<{
   const now = new Date()
   const errors: string[] = []
 
-  console.log(`[Cron] Starting scheduled email processing at ${now.toISOString()}`)
-
   // Find campaigns that are scheduled and ready to send
   // Limit to prevent overload
   const MAX_CAMPAIGNS_PER_RUN = 50
@@ -38,19 +36,8 @@ export async function processScheduledEmails(): Promise<{
         },
         take: 5, // Limit to 5 for debug
       })
-      console.log(`[Cron] 🔍 Debug: Found ${scheduledCampaignsDebug.length} campaigns with SCHEDULED status`)
-      if (scheduledCampaignsDebug.length > 0) {
-        scheduledCampaignsDebug.forEach((c) => {
-          const isReady = c.scheduledAt && c.scheduledAt <= now
-          console.log(`[Cron]   - Campaign ${c.id}: scheduledAt=${c.scheduledAt?.toISOString() || "null"}, ready=${isReady}, subject="${c.subject.substring(0, 30)}..."`)
-        })
-      }
     } catch (debugError) {
       // Silently skip debug queries if they fail (common with Prisma Accelerate limits)
-      // Only log if it's not a resource limit error
-      if (debugError instanceof Error && !debugError.message.includes("Worker exceeded resource limits")) {
-        console.error(`[Cron] ⚠️  Debug query failed:`, debugError.message)
-      }
     }
   }
   
@@ -104,7 +91,6 @@ export async function processScheduledEmails(): Promise<{
   } catch (queryError) {
     // Handle Prisma Accelerate resource limit errors gracefully
     if (queryError instanceof Error && queryError.message.includes("Worker exceeded resource limits")) {
-      console.error(`[Cron] ❌ Prisma Accelerate resource limit exceeded. Skipping this run.`)
       return {
         processed: 0,
         sent: 0,
@@ -117,12 +103,6 @@ export async function processScheduledEmails(): Promise<{
   }
 
   if (campaigns.length === 0) {
-    // Only log debug info if there are scheduled campaigns but none are ready
-    // This reduces log noise when there are no campaigns at all
-    if (ENABLE_DEBUG && scheduledCampaignsDebug.length > 0) {
-      console.log(`[Cron] Found ${scheduledCampaignsDebug.length} scheduled campaign(s), but none are ready yet (checked at ${now.toISOString()})`)
-    }
-    // Don't log every minute if there are no campaigns - too noisy
     return {
       processed: 0,
       sent: 0,
@@ -130,8 +110,6 @@ export async function processScheduledEmails(): Promise<{
       errors: [],
     }
   }
-
-  console.log(`[Cron] Found ${campaigns.length} scheduled campaign(s) to process`)
 
   let processed = 0
   let totalSent = 0
@@ -151,7 +129,6 @@ export async function processScheduledEmails(): Promise<{
 
       // If update affected 0 rows, another process already claimed this campaign
       if (updatedCampaign.count === 0) {
-        console.log(`[Cron] Campaign ${campaign.id} already being processed by another instance, skipping`)
         continue
       }
 
@@ -186,14 +163,11 @@ export async function processScheduledEmails(): Promise<{
 
       // Double-check campaign is still in SENDING status (another process might have completed it)
       if (!currentCampaign || currentCampaign.status !== EmailCampaignStatus.SENDING) {
-        console.log(`[Cron] Campaign ${campaign.id} status changed, skipping (current: ${currentCampaign?.status})`)
         continue
       }
 
       // Use current campaign data (may have fewer recipients if some were already processed)
       const recipientsToProcess = currentCampaign.recipients
-
-      console.log(`[Cron] Sending campaign ${campaign.id} to ${recipientsToProcess.length} recipient(s)`)
 
       // Prepare emails for bulk sending
       const emails = recipientsToProcess.map((recipient) => ({
@@ -232,8 +206,6 @@ export async function processScheduledEmails(): Promise<{
           if (updateResult.count > 0) {
             successCount++
             totalSent++
-          } else {
-            console.log(`[Cron] Recipient ${recipient.id} already processed, skipping`)
           }
         } else {
           // Update failed status (idempotent - safe to run multiple times)
@@ -251,8 +223,6 @@ export async function processScheduledEmails(): Promise<{
           totalFailed++
         }
       }
-
-      console.log(`[Cron] Campaign ${campaign.id} completed: ${successCount} sent, ${failedCount} failed`)
 
       // Update campaign status based on results
       // Atomic update: Only update if still SENDING (prevents race conditions)
@@ -299,11 +269,6 @@ export async function processScheduledEmails(): Promise<{
       processed++
     }
   }
-
-  const duration = Date.now() - startTime
-  console.log(
-    `[Cron] Completed: ${processed} campaign(s) processed, ${totalSent} sent, ${totalFailed} failed in ${duration}ms`
-  )
 
   return {
     processed,

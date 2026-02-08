@@ -59,7 +59,6 @@ export async function POST(request: NextRequest) {
       message: "Test email sent successfully",
     })
   } catch (error) {
-    console.error("Error sending test email:", error)
     const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json(
       { 
@@ -95,7 +94,6 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("Error verifying SMTP:", error)
     return NextResponse.json(
       { error: "Failed to verify SMTP configuration" },
       { status: 500 }

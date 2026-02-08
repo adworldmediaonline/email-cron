@@ -38,15 +38,8 @@ function getTransporter(): Transporter {
   })
 
   // Verify connection (async, don't block)
-  transporter.verify((error) => {
-    if (error) {
-      console.error("SMTP connection error:", error)
-      console.error(
-        "Please check your SMTP configuration in .env file."
-      )
-    } else {
-      console.log("SMTP server is ready to send emails")
-    }
+  transporter.verify(() => {
+    // Connection verification runs silently
   })
 
   return transporter
@@ -119,7 +112,6 @@ export async function sendEmail(
       messageId: info.messageId,
     }
   } catch (error) {
-    console.error("Error sending email:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",

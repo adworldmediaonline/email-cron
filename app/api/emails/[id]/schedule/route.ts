@@ -67,7 +67,6 @@ export async function POST(
       )
     }
 
-    console.error("Error scheduling email:", error)
     return NextResponse.json(
       { error: "Failed to schedule email" },
       { status: 500 }

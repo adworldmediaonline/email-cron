@@ -123,10 +123,8 @@ export default function DashboardPage() {
                 } else {
                   alert(`Cron Error:\n${data.error || data.message || "Unknown error"}\n\n${data.message || ""}\n\nCheck CRON_SETUP.md for setup instructions.`)
                 }
-                console.log("Cron result:", data)
               } catch (error) {
                 alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
-                console.error("Cron test error:", error)
               }
             }}
           >
@@ -148,7 +146,6 @@ export default function DashboardPage() {
                     ? `Recommendations:\n${diagnostics.recommendations.map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}`
                     : "✅ Configuration looks good!")
                 alert(message)
-                console.log("Cron diagnostics:", diagnostics)
               } catch (error) {
                 alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
               }

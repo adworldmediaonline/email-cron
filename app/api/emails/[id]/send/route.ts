@@ -108,8 +108,6 @@ export async function POST(
       failed: failedCount,
     })
   } catch (error) {
-    console.error("Error sending campaign:", error)
-
     // Update campaign status to failed
     try {
       const { id } = await params
@@ -118,7 +116,7 @@ export async function POST(
         data: { status: EmailCampaignStatus.FAILED },
       })
     } catch (updateError) {
-      console.error("Error updating campaign status:", updateError)
+      // Silently handle update error
     }
 
     return NextResponse.json(

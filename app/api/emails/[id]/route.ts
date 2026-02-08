@@ -39,7 +39,6 @@ export async function GET(
 
     return NextResponse.json({ data: campaign })
   } catch (error) {
-    console.error("Error fetching campaign:", error)
     return NextResponse.json(
       { error: "Failed to fetch campaign" },
       { status: 500 }
@@ -104,7 +103,6 @@ export async function PUT(
       )
     }
 
-    console.error("Error updating campaign:", error)
     return NextResponse.json(
       { error: "Failed to update campaign" },
       { status: 500 }
@@ -144,7 +142,6 @@ export async function DELETE(
 
     return NextResponse.json({ message: "Campaign deleted successfully" })
   } catch (error) {
-    console.error("Error deleting campaign:", error)
     return NextResponse.json(
       { error: "Failed to delete campaign" },
       { status: 500 }

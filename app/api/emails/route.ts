@@ -31,7 +31,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ data: campaigns })
   } catch (error) {
-    console.error("Error fetching campaigns:", error)
     return NextResponse.json(
       { error: "Failed to fetch campaigns" },
       { status: 500 }
@@ -99,8 +98,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ data: campaign }, { status: 201 })
   } catch (error) {
-    console.error("Error creating campaign:", error)
-    
     if (error && typeof error === "object" && "name" in error && error.name === "ZodError" && "issues" in error) {
       const zodError = error as { issues: Array<{ path: (string | number)[]; message: string }> }
       const errorMessages = zodError.issues.map((issue) => {

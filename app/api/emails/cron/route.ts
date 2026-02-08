@@ -24,7 +24,6 @@ export async function GET(request: NextRequest) {
   // In production, require CRON_SECRET (per Vercel security best practices)
   if (process.env.NODE_ENV === "production") {
     if (!cronSecret) {
-      console.error("[Cron] CRON_SECRET not set in production")
       return new Response("Unauthorized: CRON_SECRET not configured", {
         status: 401,
       })
@@ -32,7 +31,6 @@ export async function GET(request: NextRequest) {
 
     // Verify Authorization header matches CRON_SECRET exactly
     if (authHeader !== `Bearer ${cronSecret}`) {
-      console.warn("[Cron] Invalid CRON_SECRET provided")
       return new Response("Unauthorized", {
         status: 401,
       })
@@ -40,16 +38,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    console.log("[Cron] Cron job triggered at", new Date().toISOString())
-
     // Process scheduled emails
     const result = await processScheduledEmails()
 
     const duration = Date.now() - startTime
-
-    console.log(
-      `[Cron] Job completed in ${duration}ms: ${result.processed} processed, ${result.sent} sent, ${result.failed} failed`
-    )
 
     return Response.json({
       success: true,
@@ -63,7 +55,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     const duration = Date.now() - startTime
-    console.error("[Cron] Fatal error processing scheduled campaigns:", error)
 
     return Response.json(
       {

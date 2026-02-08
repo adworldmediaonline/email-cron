@@ -8,13 +8,10 @@ async function main() {
       content: 'This is my first post!',
     },
   })
-
-  console.log('Created post:', post)
 }
 
 main()
   .catch((e) => {
-    console.error(e)
     process.exit(1)
   })
   .finally(async () => {
