@@ -26,7 +26,7 @@ import { toast } from "sonner"
 // Helper function to parse emails from textarea input
 function parseEmails(input: string): string[] {
   if (!input.trim()) return []
-  
+
   // Split by commas, newlines, or spaces, then filter and trim
   return input
     .split(/[,\n\s]+/)
@@ -114,9 +114,9 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
       subject: defaultValues?.subject || "",
       body: defaultValues?.body || "",
       scheduledAt: defaultValues?.scheduledAt ? new Date(defaultValues.scheduledAt).toISOString() : null,
-      recipientsText: defaultValues?.recipientsText 
+      recipientsText: defaultValues?.recipientsText
         ? defaultValues.recipientsText
-        : defaultValues?.recipients 
+        : defaultValues?.recipients
           ? defaultValues.recipients.map(r => r.recipientEmail).join("\n")
           : "",
     },
@@ -293,37 +293,37 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
                           const [hours, minutes] = e.target.value.split(":")
                           const datetime = new Date(scheduledAt)
                           datetime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
-                          
+
                           // If selected date is today, ensure time is in the future
                           const now = new Date()
                           const selectedDate = new Date(scheduledAt)
                           selectedDate.setHours(0, 0, 0, 0)
                           const today = new Date(now)
                           today.setHours(0, 0, 0, 0)
-                          
+
                           if (selectedDate.getTime() === today.getTime() && datetime <= now) {
                             // If time is in the past for today, set to current time + 1 hour
                             datetime.setHours(now.getHours() + 1, now.getMinutes(), 0, 0)
                           }
-                          
+
                           setValue("scheduledAt", datetime.toISOString())
                         }
                       }}
                       min={
                         scheduledAt
                           ? (() => {
-                              const selectedDate = new Date(scheduledAt)
-                              const today = new Date()
-                              selectedDate.setHours(0, 0, 0, 0)
-                              today.setHours(0, 0, 0, 0)
-                              
-                              // If selected date is today, set min time to current time
-                              if (selectedDate.getTime() === today.getTime()) {
-                                const now = new Date()
-                                return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-                              }
-                              return undefined
-                            })()
+                            const selectedDate = new Date(scheduledAt)
+                            const today = new Date()
+                            selectedDate.setHours(0, 0, 0, 0)
+                            today.setHours(0, 0, 0, 0)
+
+                            // If selected date is today, set min time to current time
+                            if (selectedDate.getTime() === today.getTime()) {
+                              const now = new Date()
+                              return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+                            }
+                            return undefined
+                          })()
                           : undefined
                       }
                     />
