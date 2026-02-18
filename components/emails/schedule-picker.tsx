@@ -55,6 +55,22 @@ export function SchedulePicker({ value, onChange, disabled }: SchedulePickerProp
     }
   }
 
+  const handleTimeFocus = () => {
+    // When time picker opens, set current time if no time is set
+    if (!time) {
+      const now = new Date()
+      const defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+      setTime(defaultTime)
+      
+      // If a date is already selected, update the combined datetime
+      if (selectedDate) {
+        const combinedDate = new Date(selectedDate)
+        combinedDate.setHours(now.getHours(), now.getMinutes(), 0, 0)
+        onChange(combinedDate)
+      }
+    }
+  }
+
   const handleTimeChange = (newTime: string) => {
     setTime(newTime)
 
@@ -123,6 +139,7 @@ export function SchedulePicker({ value, onChange, disabled }: SchedulePickerProp
               type="time"
               value={time}
               onChange={(e) => handleTimeChange(e.target.value)}
+              onFocus={handleTimeFocus}
               disabled={disabled}
               className="w-full"
               placeholder="HH:MM"

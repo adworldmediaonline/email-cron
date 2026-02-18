@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -101,6 +101,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
   const router = useRouter()
   const queryClient = useQueryClient()
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [timeInputValue, setTimeInputValue] = useState<string>("")
 
   const {
     register,
@@ -124,6 +125,15 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
 
   const body = watch("body")
   const scheduledAt = watch("scheduledAt")
+
+  // Sync time input value with scheduledAt
+  useEffect(() => {
+    if (scheduledAt) {
+      setTimeInputValue(new Date(scheduledAt).toTimeString().slice(0, 5))
+    } else {
+      setTimeInputValue("")
+    }
+  }, [scheduledAt])
 
   const createMutation = useMutation({
     mutationFn: onSubmit || createCampaign,
@@ -254,10 +264,22 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
                     onSelect={(date) => {
                       if (date) {
                         const datetime = new Date(date)
-                        // If no time is set yet, default to 9 AM, otherwise preserve existing time
+                        const now = new Date()
+                        const selectedDate = new Date(date)
+                        selectedDate.setHours(0, 0, 0, 0)
+                        const today = new Date(now)
+                        today.setHours(0, 0, 0, 0)
+                        const isToday = selectedDate.getTime() === today.getTime()
+
+                        // If no time is set yet, default to current time for today, or 9 AM for future dates
                         if (!scheduledAt) {
-                          datetime.setHours(9, 0, 0, 0)
+                          if (isToday) {
+                            datetime.setHours(now.getHours(), now.getMinutes(), 0, 0)
+                          } else {
+                            datetime.setHours(9, 0, 0, 0)
+                          }
                         } else {
+                          // Preserve existing time
                           const existingDate = new Date(scheduledAt)
                           datetime.setHours(
                             existingDate.getHours(),
@@ -283,30 +305,64 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
                   <div className="flex gap-2">
                     <Input
                       type="time"
-                      value={
-                        scheduledAt
-                          ? new Date(scheduledAt).toTimeString().slice(0, 5)
-                          : ""
-                      }
-                      onChange={(e) => {
-                        if (scheduledAt && e.target.value) {
-                          const [hours, minutes] = e.target.value.split(":")
-                          const datetime = new Date(scheduledAt)
-                          datetime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
-
-                          // If selected date is today, ensure time is in the future
+                      value={timeInputValue}
+                      onFocus={(e) => {
+                        // When time picker opens, set current time if empty
+                        if (!timeInputValue && !scheduledAt) {
                           const now = new Date()
-                          const selectedDate = new Date(scheduledAt)
+                          const defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+                          setTimeInputValue(defaultTime)
+                          // Create a datetime with today's date and current time
+                          const datetime = new Date()
+                          datetime.setHours(now.getHours(), now.getMinutes(), 0, 0)
+                          setValue("scheduledAt", datetime.toISOString())
+                        }
+                      }}
+                      onChange={(e) => {
+                        const newTime = e.target.value
+                        setTimeInputValue(newTime)
+                        
+                        if (newTime) {
+                          const [hours, minutes] = newTime.split(":").map(Number)
+                          
+                          // Use existing scheduledAt date or default to today
+                          const baseDate = scheduledAt ? new Date(scheduledAt) : new Date()
+                          const datetime = new Date(baseDate)
+                          datetime.setHours(hours, minutes, 0, 0)
+
+                          // If selected date is today, ensure time is not in the past
+                          const now = new Date()
+                          const selectedDate = new Date(datetime)
                           selectedDate.setHours(0, 0, 0, 0)
                           const today = new Date(now)
                           today.setHours(0, 0, 0, 0)
 
-                          if (selectedDate.getTime() === today.getTime() && datetime <= now) {
-                            // If time is in the past for today, set to current time + 1 hour
-                            datetime.setHours(now.getHours() + 1, now.getMinutes(), 0, 0)
+                          if (selectedDate.getTime() === today.getTime()) {
+                            // Compare hours and minutes only, not seconds/milliseconds
+                            const selectedTime = hours * 60 + minutes
+                            const currentTime = now.getHours() * 60 + now.getMinutes()
+                            
+                            // Allow selecting current hour (even if minutes have passed)
+                            // Only prevent times that are clearly in the past (different hour and in past)
+                            const isCurrentHour = hours === now.getHours()
+                            const isPastTime = selectedTime < currentTime
+                            
+                            if (!isCurrentHour && isPastTime) {
+                              // Only correct if it's a different hour and in the past
+                              datetime.setHours(now.getHours(), now.getMinutes(), 0, 0)
+                              // Update the input to show the corrected time
+                              const correctedTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+                              setTimeInputValue(correctedTime)
+                            }
                           }
 
                           setValue("scheduledAt", datetime.toISOString())
+                        } else if (scheduledAt) {
+                          // If time is cleared but date exists, keep the date with default time
+                          const baseDate = new Date(scheduledAt)
+                          const now = new Date()
+                          baseDate.setHours(now.getHours(), now.getMinutes(), 0, 0)
+                          setValue("scheduledAt", baseDate.toISOString())
                         }
                       }}
                       min={
@@ -317,10 +373,11 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
                             selectedDate.setHours(0, 0, 0, 0)
                             today.setHours(0, 0, 0, 0)
 
-                            // If selected date is today, set min time to current time
+                            // If selected date is today, set min time to start of current hour
+                            // This allows selecting the current hour even if minutes have passed
                             if (selectedDate.getTime() === today.getTime()) {
                               const now = new Date()
-                              return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+                              return `${String(now.getHours()).padStart(2, "0")}:00`
                             }
                             return undefined
                           })()
