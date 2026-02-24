@@ -30,6 +30,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.563.0",
+    "luxon": "^3.7.2",
     "next": "16.1.6",
     "nodemailer": "^8.0.0",
     "prisma": "^7.3.0",
@@ -46,6 +47,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/luxon": "^3.7.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -20,6 +20,7 @@ export type EmailCampaign = {
   senderName: string
   status: EmailCampaignStatus
   scheduledAt: Date | null
+  scheduledTimezone: string | null
   sentAt: Date | null
   createdById: string
   createdAt: Date

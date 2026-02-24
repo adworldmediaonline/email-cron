@@ -22,6 +22,7 @@ export async function POST(
     const validatedData = scheduleEmailSchema.parse({
       campaignId: id,
       scheduledAt: new Date(body.scheduledAt),
+      scheduledTimezone: body.scheduledTimezone ?? null,
     })
 
     // Get campaign
@@ -41,6 +42,7 @@ export async function POST(
       where: { id: campaign.id },
       data: {
         scheduledAt: validatedData.scheduledAt,
+        scheduledTimezone: validatedData.scheduledTimezone ?? undefined,
         status: EmailCampaignStatus.SCHEDULED,
       },
       include: {

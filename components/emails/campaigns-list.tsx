@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-table"
 import { useState } from "react"
 import { format } from "date-fns"
+import { formatInTimezone } from "@/lib/utils/timezone"
 import { Button } from "@/components/ui/button"
 import { RefreshCw } from "lucide-react"
 import {
@@ -42,6 +43,7 @@ interface Campaign {
   subject: string
   status: CampaignStatus
   scheduledAt: Date | null
+  scheduledTimezone: string | null
   sentAt: Date | null
   createdAt: Date
   recipients: {
@@ -234,7 +236,10 @@ export function CampaignsList() {
       header: "Scheduled",
       cell: ({ row }) => {
         const scheduledAt = row.original.scheduledAt
-        return scheduledAt ? format(new Date(scheduledAt), "PPp") : "-"
+        const scheduledTimezone = row.original.scheduledTimezone
+        return scheduledAt
+          ? formatInTimezone(scheduledAt, scheduledTimezone)
+          : "-"
       },
     },
     {

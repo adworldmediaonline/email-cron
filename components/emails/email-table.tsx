@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-table"
 import { useState } from "react"
 import { format } from "date-fns"
+import { formatInTimezone } from "@/lib/utils/timezone"
 import {
   Table,
   TableBody,
@@ -87,7 +88,10 @@ export function EmailTable({
       header: "Scheduled At",
       cell: ({ row }) => {
         const scheduledAt = row.original.scheduledAt
-        return scheduledAt ? format(new Date(scheduledAt), "PPP p") : "-"
+        const scheduledTimezone = row.original.scheduledTimezone
+        return scheduledAt
+          ? formatInTimezone(scheduledAt, scheduledTimezone ?? null)
+          : "-"
       },
     },
     {

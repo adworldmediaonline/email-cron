@@ -146,9 +146,10 @@ model EmailCampaign {
   body        String
   senderEmail String
   senderName  String
-  status      EmailCampaignStatus @default(draft)
-  scheduledAt DateTime?
-  sentAt      DateTime?
+  status            EmailCampaignStatus @default(draft)
+  scheduledAt       DateTime?
+  scheduledTimezone String?
+  sentAt            DateTime?
   createdById String
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt

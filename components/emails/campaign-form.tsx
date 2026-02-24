@@ -6,7 +6,15 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { addHours, addDays, nextMonday, setHours, setMinutes } from "date-fns"
+import { DateTime } from "luxon"
+import {
+  getCommonTimezones,
+  getBrowserTimezone,
+  toUtcFromZoned,
+  getZonedDateParts,
+  resolveTimezoneForApi,
+  formatInTimezone,
+} from "@/lib/utils/timezone"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -39,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { TimePicker } from "@/components/ui/time-picker"
 import { Upload } from "lucide-react"
 import { toast } from "sonner"
 
@@ -94,6 +103,7 @@ const campaignSchema = z.object({
   subject: z.string().min(1, "Subject is required"),
   body: z.string().min(1, "Body is required"),
   scheduledAt: z.string().datetime().optional().nullable(),
+  scheduledTimezone: z.string().optional().nullable(),
   recipientsText: z.string().min(1, "At least one recipient is required").refine(
     (text) => {
       const emails = parseEmails(text)
@@ -123,6 +133,7 @@ async function createCampaign(data: CampaignFormData) {
       subject: data.subject,
       body: data.body,
       scheduledAt: data.scheduledAt,
+      scheduledTimezone: resolveTimezoneForApi(data.scheduledTimezone) ?? undefined,
       recipients,
     }),
   })
@@ -140,6 +151,7 @@ interface CampaignFormProps {
     subject?: string
     body?: string
     scheduledAt?: string | Date | null
+    scheduledTimezone?: string | null
     recipientsText?: string
     recipients?: Array<{ recipientEmail: string }>
   }
@@ -147,23 +159,32 @@ interface CampaignFormProps {
   onSuccess?: () => void
 }
 
-function getSchedulePresetDatetime(preset: "now" | "1h" | "tomorrow" | "next-monday"): Date {
-  const now = new Date()
+function getSchedulePresetDatetime(
+  preset: "now" | "1h" | "tomorrow" | "next-monday",
+  timezone: string
+): Date {
+  const zone = timezone === "local" ? getBrowserTimezone() : timezone
+  const now = DateTime.now().setZone(zone)
+
   switch (preset) {
     case "now":
-      return now
+      return now.toUTC().toJSDate()
     case "1h":
-      return addHours(now, 1)
+      return now.plus({ hours: 1 }).toUTC().toJSDate()
     case "tomorrow": {
-      const tomorrow = addDays(now, 1)
-      return setMinutes(setHours(tomorrow, 9), 0)
+      const tomorrow = now.plus({ days: 1 }).set({ hour: 9, minute: 0, second: 0 })
+      return tomorrow.toUTC().toJSDate()
     }
     case "next-monday": {
-      const monday = nextMonday(now)
-      return setMinutes(setHours(monday, 9), 0)
+      const monday = now.plus({ days: (8 - now.weekday) % 7 || 7 }).set({
+        hour: 9,
+        minute: 0,
+        second: 0,
+      })
+      return monday.toUTC().toJSDate()
     }
     default:
-      return now
+      return now.toUTC().toJSDate()
   }
 }
 
@@ -230,6 +251,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
       subject: defaultValues?.subject || "",
       body: defaultValues?.body || "",
       scheduledAt: defaultValues?.scheduledAt ? new Date(defaultValues.scheduledAt).toISOString() : null,
+      scheduledTimezone: defaultValues?.scheduledTimezone ?? "local",
       recipientsText: defaultValues?.recipientsText
         ? defaultValues.recipientsText
         : defaultValues?.recipients
@@ -240,6 +262,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
 
   const body = watch("body")
   const scheduledAt = watch("scheduledAt")
+  const scheduledTimezone = watch("scheduledTimezone") ?? "local"
   const subject = watch("subject")
   const recipientsText = watch("recipientsText")
 
@@ -276,6 +299,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
       if (draft.body && draft.body.trim()) setValue("body", draft.body)
       if (draft.recipientsText && draft.recipientsText.trim()) setValue("recipientsText", draft.recipientsText)
       if (draft.scheduledAt) setValue("scheduledAt", draft.scheduledAt)
+      if (draft.scheduledTimezone) setValue("scheduledTimezone", draft.scheduledTimezone)
       setRestoreDraftOpen(false)
       clearDraft()
     } catch {
@@ -302,20 +326,24 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
         body: body || "",
         recipientsText: recipientsText || "",
         scheduledAt: scheduledAt || null,
+        scheduledTimezone: scheduledTimezone || null,
       }))
     }, DRAFT_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
-  }, [subject, body, recipientsText, scheduledAt])
+  }, [subject, body, recipientsText, scheduledAt, scheduledTimezone])
 
-  // Sync time input value with scheduledAt
+  // Sync time input value with scheduledAt (in selected timezone)
   useEffect(() => {
     if (scheduledAt) {
-      setTimeInputValue(new Date(scheduledAt).toTimeString().slice(0, 5))
+      const parts = getZonedDateParts(new Date(scheduledAt), scheduledTimezone)
+      setTimeInputValue(
+        `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`
+      )
     } else {
       setTimeInputValue("")
     }
-  }, [scheduledAt])
+  }, [scheduledAt, scheduledTimezone])
 
   // Clear selected list when recipients are cleared
   useEffect(() => {
@@ -324,11 +352,14 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
     }
   }, [recipientsText])
 
-  const applySchedulePreset = useCallback((preset: "now" | "1h" | "tomorrow" | "next-monday") => {
-    const datetime = getSchedulePresetDatetime(preset)
-    setValue("scheduledAt", datetime.toISOString())
-    setCalendarOpen(false)
-  }, [setValue])
+  const applySchedulePreset = useCallback(
+    (preset: "now" | "1h" | "tomorrow" | "next-monday") => {
+      const datetime = getSchedulePresetDatetime(preset, scheduledTimezone)
+      setValue("scheduledAt", datetime.toISOString())
+      setCalendarOpen(false)
+    },
+    [setValue, scheduledTimezone]
+  )
 
   const saveListMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -796,6 +827,36 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
+            <Label>Timezone</Label>
+            <Select
+              value={scheduledTimezone}
+              onValueChange={(v) => {
+                setValue("scheduledTimezone", v)
+                // Auto-adjust date/time to current moment in the selected timezone
+                const nowInZone = getSchedulePresetDatetime("now", v)
+                setValue("scheduledAt", nowInZone.toISOString())
+              }}
+            >
+              <SelectTrigger className="w-full max-w-[320px]">
+                <SelectValue placeholder="Select timezone" />
+              </SelectTrigger>
+              <SelectContent>
+                {getCommonTimezones().map((group) => (
+                  <div key={group.group}>
+                    <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                      {group.group}
+                    </div>
+                    {group.zones.map((z) => (
+                      <SelectItem key={z.value} value={z.value}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
+                  </div>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             <Label>Quick presets</Label>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -842,7 +903,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
               <DialogTrigger asChild>
                 <Button variant="outline" type="button" className="w-full">
                   {scheduledAt
-                    ? new Date(scheduledAt).toLocaleString()
+                    ? formatInTimezone(scheduledAt, scheduledTimezone)
                     : "Not scheduled"}
                 </Button>
               </DialogTrigger>
@@ -856,35 +917,32 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
                 <div className="space-y-4">
                   <Calendar
                     mode="single"
-                    selected={scheduledAt ? new Date(scheduledAt) : undefined}
+                    selected={
+                      scheduledAt
+                        ? (() => {
+                            const parts = getZonedDateParts(
+                              new Date(scheduledAt),
+                              scheduledTimezone
+                            )
+                            return new Date(parts.year, parts.month - 1, parts.day)
+                          })()
+                        : undefined
+                    }
                     onSelect={(date) => {
                       if (date) {
-                        const datetime = new Date(date)
-                        const now = new Date()
-                        const selectedDate = new Date(date)
-                        selectedDate.setHours(0, 0, 0, 0)
-                        const today = new Date(now)
-                        today.setHours(0, 0, 0, 0)
-                        const isToday = selectedDate.getTime() === today.getTime()
-
-                        // If no time is set yet, default to current time for today, or 9 AM for future dates
-                        if (!scheduledAt) {
-                          if (isToday) {
-                            datetime.setHours(now.getHours(), now.getMinutes(), 0, 0)
-                          } else {
-                            datetime.setHours(9, 0, 0, 0)
-                          }
-                        } else {
-                          // Preserve existing time
-                          const existingDate = new Date(scheduledAt)
-                          datetime.setHours(
-                            existingDate.getHours(),
-                            existingDate.getMinutes(),
-                            0,
-                            0
-                          )
-                        }
-                        setValue("scheduledAt", datetime.toISOString())
+                        const [hours, minutes] = timeInputValue
+                          ? timeInputValue.split(":").map(Number)
+                          : [9, 0]
+                        const datetime = new Date(
+                          date.getFullYear(),
+                          date.getMonth(),
+                          date.getDate(),
+                          hours,
+                          minutes,
+                          0
+                        )
+                        const utc = toUtcFromZoned(datetime, scheduledTimezone)
+                        setValue("scheduledAt", utc.toISOString())
                       } else {
                         setValue("scheduledAt", null)
                       }
@@ -899,86 +957,97 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
                     }}
                   />
                   <div className="flex gap-2">
-                    <Input
-                      type="time"
+                    <TimePicker
                       value={timeInputValue}
-                      onFocus={(e) => {
-                        // When time picker opens, set current time if empty
-                        if (!timeInputValue && !scheduledAt) {
-                          const now = new Date()
-                          const defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-                          setTimeInputValue(defaultTime)
-                          // Create a datetime with today's date and current time
-                          const datetime = new Date()
-                          datetime.setHours(now.getHours(), now.getMinutes(), 0, 0)
-                          setValue("scheduledAt", datetime.toISOString())
-                        }
-                      }}
-                      onChange={(e) => {
-                        const newTime = e.target.value
+                      placeholder="Select time"
+                      onChange={(newTime) => {
                         setTimeInputValue(newTime)
-                        
+
                         if (newTime) {
                           const [hours, minutes] = newTime.split(":").map(Number)
-                          
-                          // Use existing scheduledAt date or default to today
-                          const baseDate = scheduledAt ? new Date(scheduledAt) : new Date()
-                          const datetime = new Date(baseDate)
-                          datetime.setHours(hours, minutes, 0, 0)
+                          const zone =
+                            scheduledTimezone === "local"
+                              ? getBrowserTimezone()
+                              : scheduledTimezone
 
-                          // If selected date is today, ensure time is not in the past
-                          const now = new Date()
-                          const selectedDate = new Date(datetime)
-                          selectedDate.setHours(0, 0, 0, 0)
-                          const today = new Date(now)
-                          today.setHours(0, 0, 0, 0)
-
-                          if (selectedDate.getTime() === today.getTime()) {
-                            // Compare hours and minutes only, not seconds/milliseconds
-                            const selectedTime = hours * 60 + minutes
-                            const currentTime = now.getHours() * 60 + now.getMinutes()
-                            
-                            // Allow selecting current hour (even if minutes have passed)
-                            // Only prevent times that are clearly in the past (different hour and in past)
-                            const isCurrentHour = hours === now.getHours()
-                            const isPastTime = selectedTime < currentTime
-                            
-                            if (!isCurrentHour && isPastTime) {
-                              // Only correct if it's a different hour and in the past
-                              datetime.setHours(now.getHours(), now.getMinutes(), 0, 0)
-                              // Update the input to show the corrected time
-                              const correctedTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-                              setTimeInputValue(correctedTime)
-                            }
+                          let year: number
+                          let month: number
+                          let day: number
+                          if (scheduledAt) {
+                            const parts = getZonedDateParts(
+                              new Date(scheduledAt),
+                              scheduledTimezone
+                            )
+                            ;({ year, month, day } = parts)
+                          } else {
+                            const now = DateTime.now().setZone(zone)
+                            year = now.year
+                            month = now.month
+                            day = now.day
                           }
 
-                          setValue("scheduledAt", datetime.toISOString())
+                          const datetime = new Date(year, month - 1, day, hours, minutes, 0)
+                          let utc = toUtcFromZoned(datetime, scheduledTimezone)
+
+                          if (utc.getTime() < Date.now()) {
+                            utc = new Date()
+                            const nowParts = getZonedDateParts(utc, scheduledTimezone)
+                            setTimeInputValue(
+                              `${String(nowParts.hour).padStart(2, "0")}:${String(nowParts.minute).padStart(2, "0")}`
+                            )
+                          }
+
+                          setValue("scheduledAt", utc.toISOString())
                         } else if (scheduledAt) {
-                          // If time is cleared but date exists, keep the date with default time
-                          const baseDate = new Date(scheduledAt)
-                          const now = new Date()
-                          baseDate.setHours(now.getHours(), now.getMinutes(), 0, 0)
-                          setValue("scheduledAt", baseDate.toISOString())
+                          const parts = getZonedDateParts(
+                            new Date(scheduledAt),
+                            scheduledTimezone
+                          )
+                          const now = DateTime.now().setZone(
+                            scheduledTimezone === "local"
+                              ? getBrowserTimezone()
+                              : scheduledTimezone
+                          )
+                          const datetime = new Date(
+                            parts.year,
+                            parts.month - 1,
+                            parts.day,
+                            now.hour,
+                            now.minute,
+                            0
+                          )
+                          setValue(
+                            "scheduledAt",
+                            toUtcFromZoned(datetime, scheduledTimezone).toISOString()
+                          )
+                          setTimeInputValue(
+                            `${String(now.hour).padStart(2, "0")}:${String(now.minute).padStart(2, "0")}`
+                          )
                         }
                       }}
-                      min={
-                        scheduledAt
-                          ? (() => {
-                            const selectedDate = new Date(scheduledAt)
-                            const today = new Date()
-                            selectedDate.setHours(0, 0, 0, 0)
-                            today.setHours(0, 0, 0, 0)
-
-                            // If selected date is today, set min time to start of current hour
-                            // This allows selecting the current hour even if minutes have passed
-                            if (selectedDate.getTime() === today.getTime()) {
-                              const now = new Date()
-                              return `${String(now.getHours()).padStart(2, "0")}:00`
-                            }
-                            return undefined
-                          })()
-                          : undefined
-                      }
+                      onOpenChange={(open) => {
+                        if (open && !timeInputValue && !scheduledAt) {
+                          const zone =
+                            scheduledTimezone === "local"
+                              ? getBrowserTimezone()
+                              : scheduledTimezone
+                          const now = DateTime.now().setZone(zone)
+                          const defaultTime = `${String(now.hour).padStart(2, "0")}:${String(now.minute).padStart(2, "0")}`
+                          setTimeInputValue(defaultTime)
+                          const datetime = new Date(
+                            now.year,
+                            now.month - 1,
+                            now.day,
+                            now.hour,
+                            now.minute,
+                            0
+                          )
+                          setValue(
+                            "scheduledAt",
+                            toUtcFromZoned(datetime, scheduledTimezone).toISOString()
+                          )
+                        }
+                      }}
                     />
                     <Button
                       type="button"
@@ -1020,7 +1089,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
             <div className="text-sm font-medium text-muted-foreground">Schedule</div>
             <div className="mt-1">
               {scheduledAt
-                ? new Date(scheduledAt).toLocaleString()
+                ? formatInTimezone(scheduledAt, scheduledTimezone)
                 : "Not scheduled"}
             </div>
           </div>
