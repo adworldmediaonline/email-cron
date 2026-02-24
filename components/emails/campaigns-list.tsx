@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   useReactTable,
@@ -75,6 +76,17 @@ async function deleteCampaign(id: string): Promise<void> {
   }
 }
 
+async function duplicateCampaign(id: string): Promise<{ data: { id: string } }> {
+  const response = await fetch(`/api/emails/${id}/duplicate`, {
+    method: "POST",
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || "Failed to duplicate campaign")
+  }
+  return response.json()
+}
+
 async function sendCampaign(id: string): Promise<void> {
   const response = await fetch(`/api/emails/${id}/send`, {
     method: "POST",
@@ -101,6 +113,7 @@ async function processScheduledCampaigns(): Promise<{
 }
 
 export function CampaignsList() {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [sorting, setSorting] = useState<SortingState>([])
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null)
@@ -162,7 +175,6 @@ export function CampaignsList() {
   const deleteMutation = useMutation({
     mutationFn: deleteCampaign,
     onSuccess: () => {
-      // Invalidate and refetch immediately for instant feedback
       queryClient.invalidateQueries({ queryKey: ["email-campaigns"] })
       refetch()
       toast.success("Campaign deleted successfully")
@@ -170,6 +182,19 @@ export function CampaignsList() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to delete campaign")
+    },
+  })
+
+  const duplicateMutation = useMutation({
+    mutationFn: duplicateCampaign,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["email-campaigns"] })
+      refetch()
+      toast.success("Campaign duplicated")
+      router.push(`/emails/${data.data.id}`)
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to duplicate campaign")
     },
   })
 
@@ -230,6 +255,14 @@ export function CampaignsList() {
 
         return (
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => duplicateMutation.mutate(campaign.id)}
+              disabled={duplicateMutation.isPending}
+            >
+              Duplicate
+            </Button>
             {canSend && (
               <Dialog
                 open={sendDialogOpen === campaign.id}

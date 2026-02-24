@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db"
 import { EmailCampaignStatus, EmailRecipientStatus } from "@/lib/types/email"
+import { personalizeContent } from "@/lib/utils/personalization"
 import { sendBulkEmails } from "./email-service"
 
 export async function processScheduledEmails(): Promise<{
@@ -169,11 +170,11 @@ export async function processScheduledEmails(): Promise<{
       // Use current campaign data (may have fewer recipients if some were already processed)
       const recipientsToProcess = currentCampaign.recipients
 
-      // Prepare emails for bulk sending
+      // Prepare emails for bulk sending (with personalization)
       const emails = recipientsToProcess.map((recipient) => ({
         to: recipient.recipientEmail,
-        subject: currentCampaign.subject,
-        html: currentCampaign.body,
+        subject: personalizeContent(currentCampaign.subject, recipient),
+        html: personalizeContent(currentCampaign.body, recipient),
       }))
 
       // Send emails in batches with rate limiting

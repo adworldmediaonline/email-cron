@@ -19,16 +19,24 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 
+const PERSONALIZATION_PLACEHOLDERS = [
+  { label: "First name", value: "{{firstName}}" },
+  { label: "Email", value: "{{email}}" },
+  { label: "Full name", value: "{{name}}" },
+] as const
+
 interface TiptapEditorProps {
   content: string
   onChange: (content: string) => void
   placeholder?: string
+  showPersonalization?: boolean
 }
 
 export function TiptapEditor({
   content,
   onChange,
   placeholder = "Start writing your email content...",
+  showPersonalization = true,
 }: TiptapEditorProps) {
   const [isMounted, setIsMounted] = useState(false)
 
@@ -90,6 +98,14 @@ export function TiptapEditor({
 
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run()
   }, [editor])
+
+  const insertPlaceholder = useCallback(
+    (placeholder: string) => {
+      if (!editor) return
+      editor.chain().focus().insertContent(placeholder).run()
+    },
+    [editor]
+  )
 
   const addImage = useCallback(() => {
     if (!editor) return
@@ -176,6 +192,26 @@ export function TiptapEditor({
         >
           <ImageIcon className="h-4 w-4" />
         </Button>
+        {showPersonalization && (
+          <>
+            <div className="w-px bg-border mx-1" />
+            <div className="flex items-center gap-1">
+              {PERSONALIZATION_PLACEHOLDERS.map(({ label, value }) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => insertPlaceholder(value)}
+                  title={`Insert ${label}`}
+                  className="text-xs font-mono"
+                >
+                  {value}
+                </Button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
       <EditorContent editor={editor} className="min-h-[300px] max-h-[600px] overflow-y-auto" />
     </div>

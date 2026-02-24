@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { personalizeContent } from "@/lib/utils/personalization"
 import { sendBulkEmails } from "@/lib/services/email-service"
 import { EmailCampaignStatus, EmailRecipientStatus } from "@/lib/types/email"
 
@@ -48,11 +49,11 @@ export async function POST(
       data: { status: EmailCampaignStatus.SENDING },
     })
 
-    // Prepare emails for bulk sending
+    // Prepare emails for bulk sending (with personalization)
     const emails = campaign.recipients.map((recipient) => ({
       to: recipient.recipientEmail,
-      subject: campaign.subject,
-      html: campaign.body,
+      subject: personalizeContent(campaign.subject, recipient),
+      html: personalizeContent(campaign.body, recipient),
     }))
 
     // Send emails in batches with rate limiting
