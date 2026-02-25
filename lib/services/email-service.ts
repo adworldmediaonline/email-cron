@@ -1,62 +1,36 @@
-import nodemailer from "nodemailer"
-import type { Transporter } from "nodemailer"
+import type { ReactNode } from "react"
+import { Resend } from "resend"
 
-let transporter: Transporter | null = null
+let resendClient: Resend | null = null
 
-function getTransporter(): Transporter {
-  if (transporter) {
-    return transporter
+function getResendClient(): Resend {
+  if (resendClient) return resendClient
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey?.trim()) {
+    throw new Error("RESEND_API_KEY is required. Set it in your environment variables.")
   }
-
-  // Validate SMTP configuration
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-    throw new Error(
-      "SMTP configuration missing. Please set SMTP_USER and SMTP_PASSWORD environment variables."
-    )
-  }
-
-  // Create reusable transporter using SMTP with connection pooling
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_SECURE === "true" || process.env.SMTP_PORT === "465", // true for 465, false for other ports
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD,
-    },
-    // Connection pool options - CRITICAL for reliable email sending
-    pool: true,
-    maxConnections: 5,
-    maxMessages: 100,
-    // Rate limiting built into transporter
-    rateDelta: 1000, // 1 second
-    rateLimit: 10, // 10 messages per rateDelta
-    // Connection timeout settings
-    connectionTimeout: 10000, // 10 seconds
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
-  })
-
-  // Verify connection (async, don't block)
-  transporter.verify(() => {
-    // Connection verification runs silently
-  })
-
-  return transporter
+  resendClient = new Resend(apiKey)
+  return resendClient
 }
 
-export interface SendEmailOptions {
-  to: string | string[]
-  subject: string
-  html: string
-  text?: string
-  from?: string
-  replyTo?: string
-  cc?: string | string[]
-  bcc?: string | string[]
+/**
+ * Format From address per RFC 5322 for proper display in email clients.
+ * When senderName is short or matches local part, use full email as display name.
+ */
+export function formatFromAddress(name: string | undefined, email: string): string {
+  const addr = email.trim()
+  if (!addr) {
+    return getDefaultFrom()
+  }
+  const localPart = addr.split("@")[0]?.toLowerCase() ?? ""
+  const trimmedName = name?.trim()
+  if (!trimmedName || trimmedName.toLowerCase() === localPart) {
+    return `"${addr}" <${addr}>`
+  }
+  return `"${trimmedName}" <${addr}>`
 }
 
-function stripHtml(html: string): string {
+function stripHtmlToText(html: string): string {
   return html
     .replace(/<[^>]*>/g, "")
     .replace(/&nbsp;/g, " ")
@@ -68,6 +42,65 @@ function stripHtml(html: string): string {
     .trim()
 }
 
+function getDefaultFrom(): string {
+  const email = process.env.RESEND_FROM_EMAIL?.trim() ?? ""
+  const name = process.env.RESEND_FROM_NAME?.trim()
+  return formatFromAddress(name, email)
+}
+
+function getReplyTo(): string | undefined {
+  return process.env.RESEND_REPLY_TO?.trim() || undefined
+}
+
+function getListUnsubscribeHeaders(): Record<string, string> {
+  const url = process.env.UNSUBSCRIBE_URL?.trim()
+  if (!url) return {}
+  const headers: Record<string, string> = {
+    "List-Unsubscribe": `<${url}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  }
+  const mailto = process.env.UNSUBSCRIBE_MAILTO?.trim()
+  if (mailto) {
+    headers["List-Unsubscribe"] = `<mailto:${mailto}?subject=Unsubscribe>, <${url}>`
+  }
+  return headers
+}
+
+/** Send with raw HTML (or React Email via `react`) */
+export interface SendEmailHtmlOptions {
+  to: string | string[]
+  subject: string
+  html?: string
+  /** React Email component; Resend renders to HTML (requires @react-email/render) */
+  react?: ReactNode
+  text?: string
+  from?: string
+  replyTo?: string
+  cc?: string | string[]
+  bcc?: string | string[]
+  idempotencyKey?: string
+}
+
+/** Send with Resend-hosted template (dashboard or API) */
+export interface SendEmailTemplateOptions {
+  to: string | string[]
+  template: { id: string; variables?: Record<string, string | number> }
+  from?: string
+  subject?: string
+  replyTo?: string
+  cc?: string | string[]
+  bcc?: string | string[]
+  idempotencyKey?: string
+}
+
+export type SendEmailOptions = SendEmailHtmlOptions | SendEmailTemplateOptions
+
+function isTemplateOptions(
+  opts: SendEmailOptions
+): opts is SendEmailTemplateOptions {
+  return "template" in opts && opts.template != null
+}
+
 export interface SendEmailResult {
   success: boolean
   messageId?: string
@@ -75,101 +108,160 @@ export interface SendEmailResult {
 }
 
 /**
- * Send email using Nodemailer with best practices
+ * Send email via Resend API.
+ * Supports: raw HTML, React Email (react), or Resend-hosted templates.
+ * Best practices: idempotency keys for retries, plain-text fallback, List-Unsubscribe for deliverability.
  */
-export async function sendEmail(
-  options: SendEmailOptions
-): Promise<SendEmailResult> {
+export async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
   try {
-    const emailTransporter = getTransporter()
+    const resend = getResendClient()
 
-    const mailOptions: any = {
-      from: options.from || process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER,
-      to: Array.isArray(options.to) ? options.to.join(", ") : options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text || stripHtml(options.html),
-      replyTo: options.replyTo,
-      cc: options.cc ? (Array.isArray(options.cc) ? options.cc.join(", ") : options.cc) : undefined,
-      bcc: options.bcc ? (Array.isArray(options.bcc) ? options.bcc.join(", ") : options.bcc) : undefined,
-      // Best practices headers
-      headers: {
-        "X-Priority": "3", // Normal priority
-        "X-MSMail-Priority": "Normal",
-        "Importance": "normal",
-        // List-Unsubscribe header for compliance
-        ...(process.env.UNSUBSCRIBE_URL && {
-          "List-Unsubscribe": `<${process.env.UNSUBSCRIBE_URL}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        }),
-      },
+    const to = Array.isArray(options.to) ? options.to : [options.to]
+    const from = options.from || getDefaultFrom()
+    const replyTo = options.replyTo || getReplyTo()
+    const headers: Record<string, string> = {
+      "X-Priority": "3",
+      "X-MSMail-Priority": "Normal",
+      Importance: "normal",
+      ...getListUnsubscribeHeaders(),
     }
 
-    const info = await emailTransporter.sendMail(mailOptions)
-
-    return {
-      success: true,
-      messageId: info.messageId,
+    if (isTemplateOptions(options)) {
+      const { data, error } = await resend.emails.send(
+        {
+          from,
+          to,
+          subject: options.subject,
+          template: options.template,
+          replyTo: replyTo ? [replyTo] : undefined,
+          cc: options.cc ? (Array.isArray(options.cc) ? options.cc : [options.cc]) : undefined,
+          bcc: options.bcc ? (Array.isArray(options.bcc) ? options.bcc : [options.bcc]) : undefined,
+          headers,
+        },
+        options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined
+      )
+      if (error) return { success: false, error: error.message || "Failed to send email" }
+      return { success: true, messageId: data?.id }
     }
-  } catch (error) {
+
+    const htmlOpts = options as SendEmailHtmlOptions
+    const sendOpts = htmlOpts.react
+      ? {
+          from,
+          to,
+          subject: htmlOpts.subject,
+          react: htmlOpts.react,
+          replyTo: replyTo ? [replyTo] : undefined,
+          cc: htmlOpts.cc ? (Array.isArray(htmlOpts.cc) ? htmlOpts.cc : [htmlOpts.cc]) : undefined,
+          bcc: htmlOpts.bcc ? (Array.isArray(htmlOpts.bcc) ? htmlOpts.bcc : [htmlOpts.bcc]) : undefined,
+          headers,
+        }
+      : {
+          from,
+          to,
+          subject: htmlOpts.subject,
+          html: htmlOpts.html ?? "",
+          text: htmlOpts.text ?? stripHtmlToText(htmlOpts.html ?? ""),
+          replyTo: replyTo ? [replyTo] : undefined,
+          cc: htmlOpts.cc ? (Array.isArray(htmlOpts.cc) ? htmlOpts.cc : [htmlOpts.cc]) : undefined,
+          bcc: htmlOpts.bcc ? (Array.isArray(htmlOpts.bcc) ? htmlOpts.bcc : [htmlOpts.bcc]) : undefined,
+          headers,
+        }
+
+    const { data, error } = await resend.emails.send(
+      sendOpts,
+      htmlOpts.idempotencyKey ? { idempotencyKey: htmlOpts.idempotencyKey } : undefined
+    )
+
+    if (error) {
+      return { success: false, error: error.message || "Failed to send email" }
+    }
+
+    return { success: true, messageId: data?.id }
+  } catch (err) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: err instanceof Error ? err.message : "Unknown error",
     }
   }
 }
 
+export interface SendBulkEmailsOptions {
+  batchSize?: number
+  delayBetweenBatches?: number
+  from?: string
+  replyTo?: string
+  /** Prefix for idempotency keys (e.g. campaign ID). Resend best practice for safe retries. */
+  idempotencyKeyPrefix?: string
+}
 
 /**
- * Send bulk emails with rate limiting and error handling
- * Matches working project pattern exactly
+ * Send bulk emails via Resend batch API (up to 100 per call).
+ * Uses idempotency keys per batch for safe retries.
  */
 export async function sendBulkEmails(
   emails: Array<{ to: string; subject: string; html: string; text?: string }>,
-  options?: {
-    batchSize?: number
-    delayBetweenBatches?: number
-  }
+  options?: SendBulkEmailsOptions
 ): Promise<Array<{ to: string; success: boolean; error?: string }>> {
-  const batchSize = options?.batchSize || 10
-  const delayBetweenBatches = options?.delayBetweenBatches || 1000 // 1 second
+  const batchSize = Math.min(options?.batchSize ?? 10, 100)
+  const delayBetweenBatches = options?.delayBetweenBatches ?? 1000
+  const from = options?.from || getDefaultFrom()
+  const replyTo = options?.replyTo || getReplyTo()
+  const headers = getListUnsubscribeHeaders()
 
   const results: Array<{ to: string; success: boolean; error?: string }> = []
 
-  // Process in batches to avoid overwhelming the SMTP server
   for (let i = 0; i < emails.length; i += batchSize) {
     const batch = emails.slice(i, i + batchSize)
+    const batchIndex = Math.floor(i / batchSize)
 
-    const batchResults = await Promise.allSettled(
-      batch.map(async (email) => {
-        const result = await sendEmail({
-          to: email.to,
-          subject: email.subject,
-          html: email.html,
-          text: email.text,
-        })
+    const batchPayload = batch.map((email) => ({
+      from,
+      to: [email.to],
+      subject: email.subject,
+      html: email.html,
+      text: email.text ?? stripHtmlToText(email.html),
+      replyTo: replyTo ? [replyTo] : undefined,
+      headers,
+    }))
 
-        return {
-          to: email.to,
-          success: result.success,
-          error: result.error,
-        }
+    try {
+      const resend = getResendClient()
+      const idempotencyKey = options?.idempotencyKeyPrefix
+        ? `${options.idempotencyKeyPrefix}-batch-${batchIndex}`
+        : undefined
+
+      const { data, error } = await resend.batch.send(batchPayload, {
+        idempotencyKey,
       })
-    )
 
-    batchResults.forEach((result) => {
-      if (result.status === "fulfilled") {
-        results.push(result.value)
-      } else {
-        results.push({
-          to: "unknown",
-          success: false,
-          error: result.reason?.message || "Failed to send",
+      if (error) {
+        batch.forEach((e) =>
+          results.push({ to: e.to, success: false, error: error.message || "Batch send failed" })
+        )
+      } else if (data?.data) {
+        data.data.forEach((item, idx) => {
+          results.push({
+            to: batch[idx]?.to ?? "unknown",
+            success: !!item?.id,
+            error: item?.id ? undefined : "No email ID returned",
+          })
         })
+      } else {
+        batch.forEach((e) =>
+          results.push({ to: e.to, success: false, error: "No response data" })
+        )
       }
-    })
+    } catch (err) {
+      batch.forEach((e) =>
+        results.push({
+          to: e.to,
+          success: false,
+          error: err instanceof Error ? err.message : "Failed to send",
+        })
+      )
+    }
 
-    // Delay between batches to respect rate limits
     if (i + batchSize < emails.length) {
       await new Promise((resolve) => setTimeout(resolve, delayBetweenBatches))
     }
@@ -179,30 +271,30 @@ export async function sendBulkEmails(
 }
 
 /**
- * Close transporter connections (useful for cleanup)
+ * Verify Resend API connection (e.g. domains.list).
  */
-/**
- * Verify SMTP connection
- */
-export async function verifyConnection(): Promise<{
-  success: boolean
-  error?: string
-}> {
+export async function verifyConnection(): Promise<{ success: boolean; error?: string }> {
   try {
-    const emailTransporter = getTransporter()
-    await emailTransporter.verify()
+    if (!process.env.RESEND_API_KEY?.trim()) {
+      return { success: false, error: "RESEND_API_KEY is not set" }
+    }
+    const resend = getResendClient()
+    const { error } = await resend.domains.list({ limit: 1 })
+    if (error) {
+      return { success: false, error: error.message || "API key may be invalid" }
+    }
     return { success: true }
-  } catch (error) {
+  } catch (err) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: err instanceof Error ? err.message : "Unknown error",
     }
   }
 }
 
-export async function closeEmailConnections(): Promise<void> {
-  if (transporter) {
-    transporter.close()
-    transporter = null
-  }
+/**
+ * Reset client (e.g. for tests). Resend is stateless; no connections to close.
+ */
+export function resetEmailClient(): void {
+  resendClient = null
 }

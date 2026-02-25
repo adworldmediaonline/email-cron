@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { personalizeContent } from "@/lib/utils/personalization"
-import { sendBulkEmails } from "@/lib/services/email-service"
+import { sendBulkEmails, formatFromAddress } from "@/lib/services/email-service"
 import { EmailCampaignStatus, EmailRecipientStatus } from "@/lib/types/email"
 
 export async function POST(
@@ -58,8 +58,11 @@ export async function POST(
 
     // Send emails in batches with rate limiting
     const emailResults = await sendBulkEmails(emails, {
-      batchSize: 10, // Send 10 emails per batch
-      delayBetweenBatches: 1000, // 1 second delay between batches
+      batchSize: 10,
+      delayBetweenBatches: 1000,
+      from: formatFromAddress(campaign.senderName, campaign.senderEmail),
+      replyTo: process.env.RESEND_REPLY_TO || process.env.SMTP_REPLY_TO || campaign.senderEmail,
+      idempotencyKeyPrefix: campaign.id,
     })
 
     // Update recipient statuses

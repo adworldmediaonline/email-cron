@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { sendEmail } from "@/lib/services/email-service"
+import { sendEmail, formatFromAddress } from "@/lib/services/email-service"
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,10 +27,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const fromEmail =
+      process.env.RESEND_FROM_EMAIL ||
+      process.env.SMTP_FROM_EMAIL ||
+      process.env.SMTP_USER ||
+      ""
+    const fromName =
+      process.env.RESEND_FROM_NAME || process.env.SMTP_FROM_NAME
     const result = await sendEmail({
       to: session.user.email,
       subject: `[Test] ${subject.trim()}`,
       html: htmlBody,
+      ...(fromEmail && {
+        from: formatFromAddress(fromName, fromEmail),
+      }),
     })
 
     if (!result.success) {
