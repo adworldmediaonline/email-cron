@@ -1,4 +1,13 @@
 import { z } from "zod"
+import { isValidTimezone } from "@/lib/utils/timezone"
+
+const timezoneSchema = z
+  .string()
+  .optional()
+  .nullable()
+  .refine((val) => !val || val === "local" || isValidTimezone(val), {
+    message: "Invalid timezone",
+  })
 
 export const createEmailCampaignSchema = z.object({
   subject: z.string().min(1, "Subject is required").max(200, "Subject must be less than 200 characters"),
@@ -11,6 +20,7 @@ export const createEmailCampaignSchema = z.object({
     )
     .min(1, "At least one recipient is required"),
   scheduledAt: z.date().nullable().optional(),
+  scheduledTimezone: timezoneSchema,
 })
 
 export const updateEmailCampaignSchema = z.object({
@@ -18,6 +28,7 @@ export const updateEmailCampaignSchema = z.object({
   body: z.string().min(1).optional(),
   status: z.enum(["draft", "scheduled", "sending", "sent", "failed"]).optional(),
   scheduledAt: z.date().nullable().optional(),
+  scheduledTimezone: timezoneSchema,
 })
 
 export const sendEmailSchema = z.object({
@@ -30,6 +41,7 @@ export const scheduleEmailSchema = z.object({
   scheduledAt: z.date().refine((date) => date > new Date(), {
     message: "Scheduled date must be in the future",
   }),
+  scheduledTimezone: timezoneSchema,
 })
 
 export type CreateEmailCampaignInput = z.infer<typeof createEmailCampaignSchema>

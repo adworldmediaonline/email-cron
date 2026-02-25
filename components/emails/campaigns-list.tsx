@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   useReactTable,
@@ -12,6 +13,7 @@ import {
 } from "@tanstack/react-table"
 import { useState } from "react"
 import { format } from "date-fns"
+import { formatInTimezone } from "@/lib/utils/timezone"
 import { Button } from "@/components/ui/button"
 import { RefreshCw } from "lucide-react"
 import {
@@ -41,6 +43,7 @@ interface Campaign {
   subject: string
   status: CampaignStatus
   scheduledAt: Date | null
+  scheduledTimezone: string | null
   sentAt: Date | null
   createdAt: Date
   recipients: {
@@ -75,6 +78,17 @@ async function deleteCampaign(id: string): Promise<void> {
   }
 }
 
+async function duplicateCampaign(id: string): Promise<{ data: { id: string } }> {
+  const response = await fetch(`/api/emails/${id}/duplicate`, {
+    method: "POST",
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || "Failed to duplicate campaign")
+  }
+  return response.json()
+}
+
 async function sendCampaign(id: string): Promise<void> {
   const response = await fetch(`/api/emails/${id}/send`, {
     method: "POST",
@@ -101,6 +115,7 @@ async function processScheduledCampaigns(): Promise<{
 }
 
 export function CampaignsList() {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [sorting, setSorting] = useState<SortingState>([])
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null)
@@ -162,7 +177,6 @@ export function CampaignsList() {
   const deleteMutation = useMutation({
     mutationFn: deleteCampaign,
     onSuccess: () => {
-      // Invalidate and refetch immediately for instant feedback
       queryClient.invalidateQueries({ queryKey: ["email-campaigns"] })
       refetch()
       toast.success("Campaign deleted successfully")
@@ -170,6 +184,19 @@ export function CampaignsList() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to delete campaign")
+    },
+  })
+
+  const duplicateMutation = useMutation({
+    mutationFn: duplicateCampaign,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["email-campaigns"] })
+      refetch()
+      toast.success("Campaign duplicated")
+      router.push(`/emails/${data.data.id}`)
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to duplicate campaign")
     },
   })
 
@@ -209,7 +236,10 @@ export function CampaignsList() {
       header: "Scheduled",
       cell: ({ row }) => {
         const scheduledAt = row.original.scheduledAt
-        return scheduledAt ? format(new Date(scheduledAt), "PPp") : "-"
+        const scheduledTimezone = row.original.scheduledTimezone
+        return scheduledAt
+          ? formatInTimezone(scheduledAt, scheduledTimezone)
+          : "-"
       },
     },
     {
@@ -230,6 +260,14 @@ export function CampaignsList() {
 
         return (
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => duplicateMutation.mutate(campaign.id)}
+              disabled={duplicateMutation.isPending}
+            >
+              Duplicate
+            </Button>
             {canSend && (
               <Dialog
                 open={sendDialogOpen === campaign.id}

@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
     const validatedData = createEmailCampaignSchema.parse({
       ...body,
       scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : null,
+      scheduledTimezone: body.scheduledTimezone ?? null,
     })
 
     // Get default sender from environment variables
@@ -76,6 +77,7 @@ export async function POST(request: NextRequest) {
           ? EmailCampaignStatus.SCHEDULED
           : EmailCampaignStatus.DRAFT,
         scheduledAt: validatedData.scheduledAt,
+        scheduledTimezone: validatedData.scheduledTimezone ?? undefined,
         createdById: session.user.id,
         recipients: {
           create: validatedData.recipients.map((r) => ({

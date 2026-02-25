@@ -76,6 +76,7 @@ export async function PUT(
     const validatedData = updateEmailCampaignSchema.parse({
       ...body,
       scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : undefined,
+      scheduledTimezone: body.scheduledTimezone ?? undefined,
     })
 
     // Update campaign

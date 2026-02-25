@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { authClient } from "@/lib/auth-client"
 import { EmailForm } from "@/components/emails/email-form"
 import type { CreateEmailCampaignInput } from "@/lib/validations/email-schema"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -13,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { toast } from "sonner"
 
 export default function EditEmailPage() {
   const router = useRouter()
@@ -38,6 +40,27 @@ export default function EditEmailPage() {
       return result.data
     },
     enabled: !!session?.user && !!campaignId,
+  })
+
+  const duplicateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/emails/${campaignId}/duplicate`, {
+        method: "POST",
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to duplicate campaign")
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["email-campaigns"] })
+      toast.success("Campaign duplicated")
+      router.push(`/emails/${data.data.id}`)
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to duplicate campaign")
+    },
   })
 
   const updateMutation = useMutation({
@@ -87,8 +110,19 @@ export default function EditEmailPage() {
     <div className="container mx-auto py-8 max-w-4xl">
       <Card>
         <CardHeader>
-          <CardTitle>Edit Email Campaign</CardTitle>
-          <CardDescription>Update your email campaign</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Edit Email Campaign</CardTitle>
+              <CardDescription>Update your email campaign</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => duplicateMutation.mutate()}
+              disabled={duplicateMutation.isPending}
+            >
+              {duplicateMutation.isPending ? "Duplicating..." : "Duplicate"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <EmailForm
