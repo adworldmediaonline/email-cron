@@ -107,7 +107,7 @@ export default function DashboardPage() {
                   Create a new promotional email campaign
                 </DialogDescription>
               </DialogHeader>
-              <div className="overflow-y-auto pr-2">
+              <div className="overflow-y-auto pr-2 pt-1">
                 <CampaignForm
                   onSuccess={() => setIsCreateDialogOpen(false)}
                 />

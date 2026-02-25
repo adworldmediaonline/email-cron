@@ -48,7 +48,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { TimePicker } from "@/components/ui/time-picker"
-import { Upload } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { AlertCircle, FilterX, Upload } from "lucide-react"
 import { toast } from "sonner"
 
 const DRAFT_STORAGE_KEY = "campaign-draft"
@@ -66,14 +67,27 @@ function parseEmails(input: string): string[] {
 }
 
 // Helper function to validate email format
+// Rejects invalid chars (e.g. { } | \ < > [ ] * ) common in typos, placeholders, or masks
 function isValidEmail(email: string): boolean {
+  if (!email || email.length > 254) return false
+  if (/[{}|\\<>[\]\s,*]/.test(email)) return false
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   return emailRegex.test(email)
 }
 
+function stripHtmlContent(html: string): string {
+  if (!html?.trim()) return ""
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;/g, "'")
+    .trim()
+}
+
 function suggestSubjectFromBody(body: string): string {
-  if (!body?.trim()) return ""
-  const stripped = body.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").trim()
+  const stripped = stripHtmlContent(body)
+  if (!stripped) return ""
   const firstLine = stripped.split(/\n/)[0]?.trim() || ""
   const first50 = firstLine.slice(0, 50)
   return first50.length < firstLine.length ? first50 + "..." : first50
@@ -99,21 +113,40 @@ function parseCsvForEmails(text: string): string[] {
   return [...new Set(emails)]
 }
 
-const campaignSchema = z.object({
-  subject: z.string().min(1, "Subject is required"),
-  body: z.string().min(1, "Body is required"),
-  scheduledAt: z.string().datetime().optional().nullable(),
-  scheduledTimezone: z.string().optional().nullable(),
-  recipientsText: z.string().min(1, "At least one recipient is required").refine(
-    (text) => {
-      const emails = parseEmails(text)
-      return emails.length > 0 && emails.every(email => isValidEmail(email))
+const campaignSchema = z
+  .object({
+    subject: z.string().min(1, "Enter a subject line for your email"),
+    body: z.string().min(1, "Add email content before continuing"),
+    scheduledAt: z.string().datetime().optional().nullable(),
+    scheduledTimezone: z.string().optional().nullable(),
+    recipientsText: z
+      .string()
+      .min(1, "Add at least one recipient")
+      .refine(
+        (text) => {
+          const emails = parseEmails(text)
+          return emails.length > 0
+        },
+        { message: "Add at least one recipient" }
+      )
+      .refine(
+        (text) => {
+          const emails = parseEmails(text)
+          return emails.every((email) => isValidEmail(email))
+        },
+        {
+          message:
+            "Some emails are invalid. Check the format (e.g. name@domain.com)",
+        }
+      ),
+  })
+  .refine(
+    (data) => {
+      const stripped = stripHtmlContent(data.body)
+      return stripped.length > 0
     },
-    {
-      message: "Please enter valid email addresses separated by commas or new lines",
-    }
-  ),
-})
+    { message: "Add email content before continuing", path: ["body"] }
+  )
 
 type CampaignFormData = z.infer<typeof campaignSchema>
 
@@ -244,6 +277,8 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
     handleSubmit,
     watch,
     setValue,
+    trigger,
+    setFocus,
     formState: { errors, isSubmitting },
   } = useForm<CampaignFormData>({
     resolver: zodResolver(campaignSchema as any),
@@ -499,6 +534,18 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
     }
   }
 
+  const handleClearInvalidEmails = () => {
+    const emails = parseEmails(recipientsText || "")
+    const valid = emails.filter((e) => isValidEmail(e))
+    const invalidCount = emails.length - valid.length
+    if (invalidCount > 0) {
+      setValue("recipientsText", valid.join("\n"))
+      toast.success(`Removed ${invalidCount} invalid email(s)`)
+    } else {
+      toast.info("No invalid emails found")
+    }
+  }
+
   const handleSelectRecipientList = (listId: string) => {
     const list = recipientLists.find((l) => l.id === listId)
     if (list) {
@@ -527,6 +574,39 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
   const onFormSubmit = async (data: CampaignFormData) => {
     createMutation.mutate(data)
   }
+
+  const STEP_FIELDS: Record<number, (keyof CampaignFormData)[]> = {
+    0: ["subject"],
+    1: ["recipientsText"],
+    2: ["body"],
+    3: [],
+    4: ["subject", "recipientsText", "body"],
+  }
+
+  const stepHasError = (stepIndex: number): boolean => {
+    const fields = STEP_FIELDS[stepIndex]
+    return fields.some((f) => errors[f])
+  }
+
+  const handleNextStep = async () => {
+    const fields = STEP_FIELDS[step]
+    const valid = fields.length === 0 ? true : await trigger(fields)
+    if (valid) {
+      setStep(step + 1)
+    } else if (fields[0]) {
+      setFocus(fields[0])
+    }
+  }
+
+  const reviewStepErrors = [
+    errors.subject && { step: 0, label: "Details", message: errors.subject.message },
+    errors.recipientsText && {
+      step: 1,
+      label: "Recipients",
+      message: errors.recipientsText.message,
+    },
+    errors.body && { step: 2, label: "Body", message: errors.body.message },
+  ].filter(Boolean) as Array<{ step: number; label: string; message: string }>
 
   return (
     <>
@@ -577,25 +657,35 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
       </AlertDialog>
 
       <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-6">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          {STEPS.map((label, i) => (
-            <div key={label} className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setStep(i)}
-                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                  step === i
-                    ? "bg-primary text-primary-foreground"
-                    : i < step
-                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
-                      : "bg-muted/50 text-muted-foreground"
-                }`}
-              >
-                {i + 1}. {label}
-              </button>
-              {i < maxStep && <span className="text-muted-foreground">›</span>}
-            </div>
-          ))}
+        <div className="flex items-center gap-2 overflow-x-auto p-2 -mx-1 min-h-10">
+          {STEPS.map((label, i) => {
+            const hasError = stepHasError(i)
+            return (
+              <div key={label} className="flex items-center gap-2 shrink-0 py-0.5">
+                <button
+                  type="button"
+                  onClick={() => setStep(i)}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-sm font-medium transition-colors flex items-center gap-1.5",
+                    hasError && "border-2 border-destructive",
+                    step === i
+                      ? hasError
+                        ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                        : "bg-primary text-primary-foreground"
+                      : hasError
+                        ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                        : i < step
+                          ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                          : "bg-muted/50 text-muted-foreground"
+                  )}
+                >
+                  {hasError && <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+                  {i + 1}. {label}
+                </button>
+                {i < maxStep && <span className="text-muted-foreground">›</span>}
+              </div>
+            )
+          })}
         </div>
 
         {step === 0 && (
@@ -614,9 +704,15 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
               placeholder="e.g., Special Offer - 50% Off!"
               {...register("subject")}
               aria-invalid={errors.subject ? "true" : "false"}
+              className={cn(
+                errors.subject && "border-destructive focus-visible:ring-destructive"
+              )}
             />
             {errors.subject && (
-              <p className="text-sm text-destructive">{errors.subject.message}</p>
+              <p className="text-sm text-destructive flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {errors.subject.message}
+              </p>
             )}
           </div>
         </CardContent>
@@ -634,7 +730,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>Saved lists</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Select
                 value={selectedListId || "__none__"}
                 onValueChange={(v) => (v === "__none__" ? setSelectedListId("") : handleSelectRecipientList(v))}
@@ -685,6 +781,20 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
               >
                 Remove duplicates
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleClearInvalidEmails}
+                disabled={
+                  !recipientsText ||
+                  parseEmails(recipientsText || "").filter((e) => !isValidEmail(e))
+                    .length === 0
+                }
+              >
+                <FilterX className="mr-2 h-4 w-4" />
+                Clear invalid emails
+              </Button>
             </div>
           </div>
           <Dialog open={saveListOpen} onOpenChange={setSaveListOpen}>
@@ -727,16 +837,56 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
               rows={8}
               {...register("recipientsText")}
               aria-invalid={errors.recipientsText ? "true" : "false"}
-              className="font-mono text-sm"
+              className={cn(
+                "font-mono text-sm",
+                errors.recipientsText && "border-destructive focus-visible:ring-destructive"
+              )}
             />
             {errors.recipientsText && (
-              <p className="text-sm text-destructive">
+              <p className="text-sm text-destructive flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
                 {errors.recipientsText.message}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Tip: You can paste a list of emails separated by commas, spaces, or new lines. Invalid emails will be highlighted.
-            </p>
+            {(() => {
+              const emails = parseEmails(recipientsText || "")
+              const invalid = emails.filter((e) => !isValidEmail(e))
+              if (emails.length > 0) {
+                return (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Parsed emails ({emails.length - invalid.length} valid, {invalid.length} invalid)
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {emails.map((e, i) => (
+                        <span
+                          key={`${e}-${i}`}
+                          className={cn(
+                            "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-mono",
+                            isValidEmail(e)
+                              ? "bg-muted text-muted-foreground"
+                              : "bg-destructive/10 text-destructive border border-destructive/30"
+                          )}
+                        >
+                          {e}
+                        </span>
+                      ))}
+                    </div>
+                    {invalid.length > 0 && (
+                      <p className="text-sm text-destructive flex items-center gap-1.5">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        {invalid.length} invalid email(s). Use &quot;Clear invalid emails&quot; to remove them.
+                      </p>
+                    )}
+                  </div>
+                )
+              }
+              return (
+                <p className="text-xs text-muted-foreground">
+                  Tip: Paste emails separated by commas, spaces, or new lines.
+                </p>
+              )
+            })()}
           </div>
         </CardContent>
       </Card>
@@ -804,13 +954,23 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
             </DialogContent>
           </Dialog>
           <div className="space-y-2">
-            <TiptapEditor
-              content={body}
-              onChange={(content) => setValue("body", content)}
-              placeholder="Write your email content here..."
-            />
+            <div
+              className={cn(
+                "rounded-md border",
+                errors.body && "border-destructive ring-2 ring-destructive/20"
+              )}
+            >
+              <TiptapEditor
+                content={body}
+                onChange={(content) => setValue("body", content)}
+                placeholder="Write your email content here..."
+              />
+            </div>
             {errors.body && (
-              <p className="text-sm text-destructive">{errors.body.message}</p>
+              <p className="text-sm text-destructive flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {errors.body.message}
+              </p>
             )}
           </div>
         </CardContent>
@@ -1077,6 +1237,33 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {reviewStepErrors.length > 0 && (
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 space-y-3"
+            >
+              <p className="text-sm font-medium text-destructive flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Fix these issues before creating your campaign
+              </p>
+              <ul className="space-y-2">
+                {reviewStepErrors.map(({ step: stepIdx, label, message }) => (
+                  <li key={stepIdx} className="flex items-center justify-between gap-4">
+                    <span className="text-sm text-destructive">{message}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setStep(stepIdx)}
+                    >
+                      Go to {label}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div>
             <div className="text-sm font-medium text-muted-foreground">Subject</div>
             <div className="mt-1">{subject || "—"}</div>
@@ -1097,7 +1284,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
       </Card>
         )}
 
-      <div className="flex justify-between gap-4">
+      <div className="sticky bottom-0 flex justify-between gap-4 bg-background pt-4 pb-2 -mx-1 px-1 border-t mt-6">
         <div className="flex gap-2">
           {step > 0 ? (
             <Button
@@ -1117,10 +1304,7 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
             </Button>
           )}
           {step < maxStep ? (
-            <Button
-              type="button"
-              onClick={() => setStep(step + 1)}
-            >
+            <Button type="button" onClick={handleNextStep}>
               Next
             </Button>
           ) : (
