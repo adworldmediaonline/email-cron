@@ -23,7 +23,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Mail, Clock, CheckCircle, XCircle } from "lucide-react"
+import Link from "next/link"
+import { Plus, Mail, Clock, CheckCircle, XCircle, Send } from "lucide-react"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -93,6 +94,12 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/test-email">
+              <Send className="mr-2 h-4 w-4" />
+              Test Resend
+            </Link>
+          </Button>
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button>

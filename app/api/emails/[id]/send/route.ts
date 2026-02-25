@@ -2,8 +2,18 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { personalizeContent } from "@/lib/utils/personalization"
-import { sendBulkEmails } from "@/lib/services/email-service"
+import { sendBulkEmails, getDefaultFrom } from "@/lib/services/email-service"
 import { EmailCampaignStatus, EmailRecipientStatus } from "@/lib/types/email"
+
+function getFromAddress(): string {
+  const email = process.env.RESEND_FROM_EMAIL?.trim()
+  if (!email) {
+    throw new Error(
+      "RESEND_FROM_EMAIL must be set in .env. Restart the dev server (pnpm dev) after changing .env."
+    )
+  }
+  return getDefaultFrom()
+}
 
 export async function POST(
   request: NextRequest,
@@ -58,8 +68,11 @@ export async function POST(
 
     // Send emails in batches with rate limiting
     const emailResults = await sendBulkEmails(emails, {
-      batchSize: 10, // Send 10 emails per batch
-      delayBetweenBatches: 1000, // 1 second delay between batches
+      batchSize: 10,
+      delayBetweenBatches: 1000,
+      from: getFromAddress(),
+      replyTo: undefined,
+      idempotencyKeyPrefix: campaign.id,
     })
 
     // Update recipient statuses
@@ -102,6 +115,15 @@ export async function POST(
         sentAt: finalStatus === EmailCampaignStatus.SENT ? new Date() : undefined,
       },
     })
+
+    // When all sends failed, return 500 with the actual error so user sees Resend error (e.g. domain not verified)
+    if (failedCount > 0 && successCount === 0) {
+      const firstError = emailResults.find((r) => r.error)?.error ?? "All emails failed to send"
+      return NextResponse.json(
+        { error: firstError, sent: 0, failed: failedCount },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
       success: true,

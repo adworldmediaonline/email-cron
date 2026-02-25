@@ -30,7 +30,7 @@ export async function DELETE(
       where: { id },
     })
 
-    return NextResponse.json({ data: { id } })
+    return NextResponse.json({ success: true })
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to delete template" },

@@ -55,13 +55,13 @@ export async function POST(request: NextRequest) {
       scheduledTimezone: body.scheduledTimezone ?? null,
     })
 
-    // Get default sender from environment variables
-    const senderEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || ""
-    const senderName = process.env.SMTP_FROM_NAME || "Email Campaign"
+    // Get default sender from Resend env vars
+    const senderEmail = process.env.RESEND_FROM_EMAIL?.trim() ?? ""
+    const senderName = process.env.RESEND_FROM_NAME?.trim() ?? "Email Campaign"
 
     if (!senderEmail) {
       return NextResponse.json(
-        { error: "SMTP_FROM_EMAIL or SMTP_USER must be configured" },
+        { error: "RESEND_FROM_EMAIL must be configured" },
         { status: 500 }
       )
     }

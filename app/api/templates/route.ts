@@ -6,7 +6,7 @@ import * as z from "zod"
 const createTemplateSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
   subject: z.string().min(1, "Subject is required"),
-  body: z.string(),
+  body: z.string().min(1, "Body is required"),
 })
 
 export async function GET(request: NextRequest) {
@@ -20,17 +20,15 @@ export async function GET(request: NextRequest) {
     const templates = await prisma.emailTemplate.findMany({
       where: { userId: session.user.id },
       orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        subject: true,
+        body: true,
+      },
     })
 
-    return NextResponse.json({
-      data: templates.map((t) => ({
-        id: t.id,
-        name: t.name,
-        subject: t.subject,
-        body: t.body,
-        createdAt: t.createdAt,
-      })),
-    })
+    return NextResponse.json({ data: templates })
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to fetch templates" },
@@ -66,7 +64,6 @@ export async function POST(request: NextRequest) {
           name: template.name,
           subject: template.subject,
           body: template.body,
-          createdAt: template.createdAt,
         },
       },
       { status: 201 }

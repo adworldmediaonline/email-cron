@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { sendEmail, verifyConnection } from "@/lib/services/email-service"
+import { sendEmail, verifyConnection, formatFromAddress } from "@/lib/services/email-service"
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,39 +20,44 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify SMTP connection first
     const verification = await verifyConnection()
     if (!verification.success) {
       return NextResponse.json(
-        { 
-          error: "SMTP connection failed", 
+        {
+          error: "Resend connection failed",
           details: verification.error,
-          message: "Please check your SMTP configuration in .env file"
+          message: "Please check RESEND_API_KEY in .env file",
         },
         { status: 500 }
       )
     }
 
-    // Get default sender from environment variables
-    const senderEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || ""
-    const senderName = process.env.SMTP_FROM_NAME || "Email Campaign"
+    const senderEmail = process.env.RESEND_FROM_EMAIL?.trim() ?? ""
+    const senderName = process.env.RESEND_FROM_NAME?.trim() ?? "Email Campaign"
 
     if (!senderEmail) {
       return NextResponse.json(
-        { error: "SMTP_FROM_EMAIL or SMTP_USER must be configured" },
+        { error: "RESEND_FROM_EMAIL must be configured" },
         { status: 500 }
       )
     }
 
-    // Send test email
-    // Format from address with name if provided
-    const fromAddress = senderName ? `${senderName} <${senderEmail}>` : senderEmail
-    await sendEmail({
+    const senderResult = await sendEmail({
       to,
-      from: fromAddress,
+      from: formatFromAddress(senderName || undefined, senderEmail),
       subject,
       html,
     })
+
+    if (!senderResult.success) {
+      return NextResponse.json(
+        {
+          error: "Failed to send test email",
+          details: senderResult.error,
+        },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
       success: true,
@@ -61,10 +66,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json(
-      { 
+      {
         error: "Failed to send test email",
         details: errorMessage,
-        message: "Check server logs for more details. Common issues: Gmail requires App Password, check spam folder, verify SMTP credentials"
+        message: "Check RESEND_API_KEY and verify your domain in Resend dashboard",
       },
       { status: 500 }
     )
@@ -79,23 +84,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Verify SMTP connection
     const verification = await verifyConnection()
-    
+
     return NextResponse.json({
       success: verification.success,
       error: verification.error,
-      smtpConfig: {
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT,
-        user: process.env.SMTP_USER ? "***configured***" : "not set",
-        fromEmail: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "not set",
-        fromName: process.env.SMTP_FROM_NAME || "not set",
+      config: {
+        apiKey: process.env.RESEND_API_KEY ? "***configured***" : "not set",
+        fromEmail: process.env.RESEND_FROM_EMAIL?.trim() || "not set",
+        fromName: process.env.RESEND_FROM_NAME?.trim() || "not set",
       },
     })
   } catch (error) {
     return NextResponse.json(
-      { error: "Failed to verify SMTP configuration" },
+      { error: "Failed to verify Resend configuration" },
       { status: 500 }
     )
   }
