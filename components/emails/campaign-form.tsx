@@ -41,6 +41,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -49,7 +54,7 @@ import {
 } from "@/components/ui/select"
 import { TimePicker } from "@/components/ui/time-picker"
 import { cn } from "@/lib/utils"
-import { AlertCircle, FilterX, Upload } from "lucide-react"
+import { AlertCircle, ChevronDown, FilterX, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
 
 const DRAFT_STORAGE_KEY = "campaign-draft"
@@ -233,6 +238,9 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
   const [saveTemplateName, setSaveTemplateName] = useState("")
   const [selectedListId, setSelectedListId] = useState<string>("")
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("")
+  const [templatePopoverOpen, setTemplatePopoverOpen] = useState(false)
+  const [deleteTemplateConfirmOpen, setDeleteTemplateConfirmOpen] = useState(false)
+  const [templateToDelete, setTemplateToDelete] = useState<{ id: string; name: string } | null>(null)
   const [step, setStep] = useState(0)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const draftCheckedRef = useRef(false)
@@ -494,7 +502,35 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
       setValue("subject", template.subject)
       setValue("body", template.body)
       setSelectedTemplateId(templateId)
+      setTemplatePopoverOpen(false)
     }
+  }
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/templates/${id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || "Failed to delete template")
+      }
+      return res.json()
+    },
+    onSuccess: (_, deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ["email-templates"] })
+      if (selectedTemplateId === deletedId) {
+        setSelectedTemplateId("")
+      }
+      setDeleteTemplateConfirmOpen(false)
+      setTemplateToDelete(null)
+      toast.success("Template deleted")
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const handleDeleteTemplateClick = (e: React.MouseEvent, template: { id: string; name: string }) => {
+    e.stopPropagation()
+    setTemplateToDelete(template)
+    setDeleteTemplateConfirmOpen(true)
   }
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -619,24 +655,74 @@ export function CampaignForm({ defaultValues, onSubmit, onSuccess }: CampaignFor
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Select
-              value={selectedTemplateId || "__none__"}
-              onValueChange={(v) =>
-                v === "__none__" ? setSelectedTemplateId("") : handleSelectTemplate(v)
-              }
-            >
-              <SelectTrigger className="w-[280px]">
-                <SelectValue placeholder="Choose a template..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Choose a template...</SelectItem>
-                {templates.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={templatePopoverOpen} onOpenChange={setTemplatePopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-[280px] justify-between font-normal"
+                >
+                  <span className="truncate">
+                    {selectedTemplateId
+                      ? templates.find((t) => t.id === selectedTemplateId)?.name ?? "Choose a template..."
+                      : "Choose a template..."}
+                  </span>
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[280px] p-0" align="start">
+                <div className="max-h-[280px] overflow-y-auto">
+                  {templates.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-muted/50"
+                      onClick={() => handleSelectTemplate(t.id)}
+                    >
+                      <span className="truncate flex-1">{t.name}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => handleDeleteTemplateClick(e, { id: t.id, name: t.name })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span className="sr-only">Delete {t.name}</span>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+            <AlertDialog open={deleteTemplateConfirmOpen} onOpenChange={setDeleteTemplateConfirmOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete template?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete &quot;{templateToDelete?.name}&quot;? This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    onClick={() => {
+                      setDeleteTemplateConfirmOpen(false)
+                      setTemplateToDelete(null)
+                    }}
+                    disabled={deleteTemplateMutation.isPending}
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+                  <Button
+                    variant="destructive"
+                    onClick={() =>
+                      templateToDelete && deleteTemplateMutation.mutate(templateToDelete.id)
+                    }
+                    disabled={deleteTemplateMutation.isPending}
+                  >
+                    {deleteTemplateMutation.isPending ? "Deleting..." : "Delete"}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </CardContent>
         </Card>
       )}
