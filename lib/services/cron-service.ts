@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db"
 import { EmailCampaignStatus, EmailRecipientStatus } from "@/lib/types/email"
 import { personalizeContent } from "@/lib/utils/personalization"
-import { sendBulkEmails, formatFromAddress } from "./email-service"
+import { sendBulkEmails, getDefaultFrom } from "./email-service"
 
 export async function processScheduledEmails(): Promise<{
   processed: number
@@ -181,8 +181,8 @@ export async function processScheduledEmails(): Promise<{
       const emailResults = await sendBulkEmails(emails, {
         batchSize: 10,
         delayBetweenBatches: 1000,
-        from: formatFromAddress(currentCampaign.senderName, currentCampaign.senderEmail),
-        replyTo: process.env.RESEND_REPLY_TO || process.env.SMTP_REPLY_TO || currentCampaign.senderEmail,
+        from: getDefaultFrom(),
+        replyTo: undefined,
         idempotencyKeyPrefix: currentCampaign.id,
       })
 

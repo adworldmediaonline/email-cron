@@ -30,8 +30,8 @@ export async function POST(
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 })
     }
 
-    const senderEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || ""
-    const senderName = process.env.SMTP_FROM_NAME || "Email Campaign"
+    const senderEmail = process.env.RESEND_FROM_EMAIL?.trim() ?? ""
+    const senderName = process.env.RESEND_FROM_NAME?.trim() ?? "Email Campaign"
 
     const duplicated = await prisma.emailCampaign.create({
       data: {

@@ -32,24 +32,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const senderEmail =
-      process.env.RESEND_FROM_EMAIL ||
-      process.env.SMTP_FROM_EMAIL ||
-      process.env.SMTP_USER ||
-      ""
-    const senderName =
-      process.env.RESEND_FROM_NAME || process.env.SMTP_FROM_NAME || "Email Campaign"
+    const senderEmail = process.env.RESEND_FROM_EMAIL?.trim() ?? ""
+    const senderName = process.env.RESEND_FROM_NAME?.trim() ?? "Email Campaign"
 
     if (!senderEmail) {
       return NextResponse.json(
-        { error: "RESEND_FROM_EMAIL or SMTP_FROM_EMAIL must be configured" },
+        { error: "RESEND_FROM_EMAIL must be configured" },
         { status: 500 }
       )
     }
 
     const senderResult = await sendEmail({
       to,
-      from: formatFromAddress(senderName, senderEmail),
+      from: formatFromAddress(senderName || undefined, senderEmail),
       subject,
       html,
     })
@@ -96,13 +91,8 @@ export async function GET(request: NextRequest) {
       error: verification.error,
       config: {
         apiKey: process.env.RESEND_API_KEY ? "***configured***" : "not set",
-        fromEmail:
-          process.env.RESEND_FROM_EMAIL ||
-          process.env.SMTP_FROM_EMAIL ||
-          process.env.SMTP_USER ||
-          "not set",
-        fromName:
-          process.env.RESEND_FROM_NAME || process.env.SMTP_FROM_NAME || "not set",
+        fromEmail: process.env.RESEND_FROM_EMAIL?.trim() || "not set",
+        fromName: process.env.RESEND_FROM_NAME?.trim() || "not set",
       },
     })
   } catch (error) {

@@ -27,19 +27,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const fromEmail =
-      process.env.RESEND_FROM_EMAIL ||
-      process.env.SMTP_FROM_EMAIL ||
-      process.env.SMTP_USER ||
-      ""
-    const fromName =
-      process.env.RESEND_FROM_NAME || process.env.SMTP_FROM_NAME
+    const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() ?? ""
+    const fromName = process.env.RESEND_FROM_NAME?.trim() ?? ""
     const result = await sendEmail({
       to: session.user.email,
       subject: `[Test] ${subject.trim()}`,
       html: htmlBody,
       ...(fromEmail && {
-        from: formatFromAddress(fromName, fromEmail),
+        from: formatFromAddress(fromName || undefined, fromEmail),
       }),
     })
 

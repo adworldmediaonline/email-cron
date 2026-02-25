@@ -15,7 +15,8 @@ function getResendClient(): Resend {
 
 /**
  * Format From address per RFC 5322 for proper display in email clients.
- * When senderName is short or matches local part, use full email as display name.
+ * When senderName is empty or matches local part (e.g. "info" for info@domain.com),
+ * falls back to RESEND_FROM_NAME so inbox shows a proper name instead of the local part.
  */
 export function formatFromAddress(name: string | undefined, email: string): string {
   const addr = email.trim()
@@ -23,11 +24,14 @@ export function formatFromAddress(name: string | undefined, email: string): stri
     return getDefaultFrom()
   }
   const localPart = addr.split("@")[0]?.toLowerCase() ?? ""
-  const trimmedName = name?.trim()
-  if (!trimmedName || trimmedName.toLowerCase() === localPart) {
+  let displayName = name?.trim()
+  if (!displayName || displayName.toLowerCase() === localPart) {
+    displayName = process.env.RESEND_FROM_NAME?.trim() ?? ""
+  }
+  if (!displayName || displayName.toLowerCase() === localPart) {
     return `"${addr}" <${addr}>`
   }
-  return `"${trimmedName}" <${addr}>`
+  return `"${displayName}" <${addr}>`
 }
 
 function stripHtmlToText(html: string): string {
@@ -42,7 +46,8 @@ function stripHtmlToText(html: string): string {
     .trim()
 }
 
-function getDefaultFrom(): string {
+/** Get From address from RESEND_FROM_EMAIL + RESEND_FROM_NAME. Use when sending so env is source of truth. */
+export function getDefaultFrom(): string {
   const email = process.env.RESEND_FROM_EMAIL?.trim() ?? ""
   const name = process.env.RESEND_FROM_NAME?.trim()
   return formatFromAddress(name, email)
@@ -110,6 +115,12 @@ export interface SendEmailResult {
 /**
  * Send email via Resend API.
  * Supports: raw HTML, React Email (react), or Resend-hosted templates.
+ *
+ * From address (Resend best practice):
+ * - Use format "Display Name <email@domain.com>" via formatFromAddress() or getDefaultFrom()
+ * - When `from` is omitted, uses RESEND_FROM_EMAIL + RESEND_FROM_NAME from env
+ * - Pass explicit `from` when using campaign-specific sender
+ *
  * Best practices: idempotency keys for retries, plain-text fallback, List-Unsubscribe for deliverability.
  */
 export async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
@@ -147,26 +158,26 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
     const htmlOpts = options as SendEmailHtmlOptions
     const sendOpts = htmlOpts.react
       ? {
-          from,
-          to,
-          subject: htmlOpts.subject,
-          react: htmlOpts.react,
-          replyTo: replyTo ? [replyTo] : undefined,
-          cc: htmlOpts.cc ? (Array.isArray(htmlOpts.cc) ? htmlOpts.cc : [htmlOpts.cc]) : undefined,
-          bcc: htmlOpts.bcc ? (Array.isArray(htmlOpts.bcc) ? htmlOpts.bcc : [htmlOpts.bcc]) : undefined,
-          headers,
-        }
+        from,
+        to,
+        subject: htmlOpts.subject,
+        react: htmlOpts.react,
+        replyTo: replyTo ? [replyTo] : undefined,
+        cc: htmlOpts.cc ? (Array.isArray(htmlOpts.cc) ? htmlOpts.cc : [htmlOpts.cc]) : undefined,
+        bcc: htmlOpts.bcc ? (Array.isArray(htmlOpts.bcc) ? htmlOpts.bcc : [htmlOpts.bcc]) : undefined,
+        headers,
+      }
       : {
-          from,
-          to,
-          subject: htmlOpts.subject,
-          html: htmlOpts.html ?? "",
-          text: htmlOpts.text ?? stripHtmlToText(htmlOpts.html ?? ""),
-          replyTo: replyTo ? [replyTo] : undefined,
-          cc: htmlOpts.cc ? (Array.isArray(htmlOpts.cc) ? htmlOpts.cc : [htmlOpts.cc]) : undefined,
-          bcc: htmlOpts.bcc ? (Array.isArray(htmlOpts.bcc) ? htmlOpts.bcc : [htmlOpts.bcc]) : undefined,
-          headers,
-        }
+        from,
+        to,
+        subject: htmlOpts.subject,
+        html: htmlOpts.html ?? "",
+        text: htmlOpts.text ?? stripHtmlToText(htmlOpts.html ?? ""),
+        replyTo: replyTo ? [replyTo] : undefined,
+        cc: htmlOpts.cc ? (Array.isArray(htmlOpts.cc) ? htmlOpts.cc : [htmlOpts.cc]) : undefined,
+        bcc: htmlOpts.bcc ? (Array.isArray(htmlOpts.bcc) ? htmlOpts.bcc : [htmlOpts.bcc]) : undefined,
+        headers,
+      }
 
     const { data, error } = await resend.emails.send(
       sendOpts,
