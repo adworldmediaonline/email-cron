@@ -15,7 +15,7 @@ import { useState } from "react"
 import { format } from "date-fns"
 import { formatInTimezone } from "@/lib/utils/timezone"
 import { Button } from "@/components/ui/button"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -34,6 +34,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { RecipientsTable } from "@/components/emails/recipients-table"
 import type { EmailCampaign } from "@/lib/types/email"
 
 type CampaignStatus = "draft" | "scheduled" | "sending" | "sent" | "failed"
@@ -49,6 +50,12 @@ interface Campaign {
   recipients: {
     id: string
     status: string
+    recipientEmail?: string
+    recipientName?: string | null
+    sentAt?: Date | null
+    lastEvent?: string | null
+    errorMessage?: string | null
+    resendEmailId?: string | null
   }[]
 }
 
@@ -67,6 +74,56 @@ async function fetchCampaigns(): Promise<Campaign[]> {
   }
   const data = await response.json()
   return data.data
+}
+
+async function fetchCampaignById(id: string) {
+  const response = await fetch(`/api/emails/${id}`)
+  if (!response.ok) {
+    throw new Error("Failed to fetch campaign")
+  }
+  const result = await response.json()
+  return result.data
+}
+
+function CampaignRecipientsRow({ campaignId }: { campaignId: string }) {
+  const { data: campaign, isLoading } = useQuery({
+    queryKey: ["email-campaign", campaignId],
+    queryFn: () => fetchCampaignById(campaignId),
+    enabled: !!campaignId,
+  })
+
+  if (isLoading) {
+    return (
+      <div className="p-4 text-center text-muted-foreground text-sm">
+        Loading recipients...
+      </div>
+    )
+  }
+
+  const recipients =
+    campaign?.recipients?.map(
+      (r: {
+        id: string
+        recipientEmail: string
+        recipientName: string | null
+        status: string
+        sentAt: Date | null
+        lastEvent: string | null
+        errorMessage: string | null
+        resendEmailId: string | null
+      }) => ({
+        id: r.id,
+        recipientEmail: r.recipientEmail,
+        recipientName: r.recipientName,
+        status: r.status,
+        sentAt: r.sentAt,
+        lastEvent: r.lastEvent,
+        errorMessage: r.errorMessage,
+        resendEmailId: r.resendEmailId,
+      })
+    ) ?? []
+
+  return <RecipientsTable recipients={recipients} />
 }
 
 async function deleteCampaign(id: string): Promise<void> {
@@ -120,6 +177,9 @@ export function CampaignsList() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null)
   const [sendDialogOpen, setSendDialogOpen] = useState<string | null>(null)
+  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(
+    null
+  )
 
   const {
     data: campaigns = [],
@@ -201,6 +261,33 @@ export function CampaignsList() {
   })
 
   const columns: ColumnDef<Campaign>[] = [
+    {
+      id: "expand",
+      header: "",
+      cell: ({ row }) => {
+        const campaign = row.original
+        const isExpanded = expandedCampaignId === campaign.id
+        return (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() =>
+              setExpandedCampaignId(isExpanded ? null : campaign.id)
+            }
+          >
+            {isExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            <span className="sr-only">
+              {isExpanded ? "Collapse" : "Expand"} recipients
+            </span>
+          </Button>
+        )
+      },
+    },
     {
       accessorKey: "subject",
       header: "Subject",
@@ -432,21 +519,42 @@ export function CampaignsList() {
                 </TableCell>
               </TableRow>
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className="transition-colors duration-200"
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              table.getRowModel().rows.flatMap((row) => {
+                const campaign = row.original
+                const isExpanded = expandedCampaignId === campaign.id
+                return [
+                  <TableRow
+                    key={row.id}
+                    className="transition-colors duration-200"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>,
+                  ...(isExpanded
+                    ? [
+                        <TableRow key={`${row.id}-expanded`}>
+                          <TableCell
+                            colSpan={columns.length}
+                            className="bg-muted/30 p-0 border-b"
+                          >
+                            <div className="p-4">
+                              <h4 className="text-sm font-medium mb-3">
+                                Recipients
+                              </h4>
+                              <CampaignRecipientsRow campaignId={campaign.id} />
+                            </div>
+                          </TableCell>
+                        </TableRow>,
+                      ]
+                    : []),
+                ]
+              })
             )}
           </TableBody>
         </Table>
