@@ -15,7 +15,8 @@ import { useState } from "react"
 import { format } from "date-fns"
 import { formatInTimezone } from "@/lib/utils/timezone"
 import { Button } from "@/components/ui/button"
-import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import { RefreshCw, ChevronDown, ChevronRight, Trash2 } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -135,6 +136,20 @@ async function deleteCampaign(id: string): Promise<void> {
   }
 }
 
+async function bulkDeleteCampaigns(ids: string[]): Promise<void> {
+  const results = await Promise.allSettled(
+    ids.map((id) =>
+      fetch(`/api/emails/${id}`, { method: "DELETE" }).then((res) => {
+        if (!res.ok) throw new Error("Failed to delete")
+      })
+    )
+  )
+  const failed = results.filter((r) => r.status === "rejected").length
+  if (failed > 0) {
+    throw new Error(`${failed} campaign(s) could not be deleted`)
+  }
+}
+
 async function duplicateCampaign(id: string): Promise<{ data: { id: string } }> {
   const response = await fetch(`/api/emails/${id}/duplicate`, {
     method: "POST",
@@ -175,8 +190,10 @@ export function CampaignsList() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [sorting, setSorting] = useState<SortingState>([])
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null)
   const [sendDialogOpen, setSendDialogOpen] = useState<string | null>(null)
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(
     null
   )
@@ -247,6 +264,20 @@ export function CampaignsList() {
     },
   })
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: bulkDeleteCampaigns,
+    onSuccess: (_, ids) => {
+      queryClient.invalidateQueries({ queryKey: ["email-campaigns"] })
+      refetch()
+      setRowSelection({})
+      setBulkDeleteDialogOpen(false)
+      toast.success(`${ids.length} campaign(s) deleted successfully`)
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to delete campaigns")
+    },
+  })
+
   const duplicateMutation = useMutation({
     mutationFn: duplicateCampaign,
     onSuccess: (data) => {
@@ -261,6 +292,29 @@ export function CampaignsList() {
   })
 
   const columns: ColumnDef<Campaign>[] = [
+    {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={
+            table.getIsAllPageRowsSelected() ||
+            (table.getIsSomePageRowsSelected() && "indeterminate")
+          }
+          onCheckedChange={(value) =>
+            table.toggleAllPageRowsSelected(!!value)
+          }
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    },
     {
       id: "expand",
       header: "",
@@ -441,10 +495,19 @@ export function CampaignsList() {
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
     state: {
       sorting,
+      rowSelection,
     },
+    enableRowSelection: true,
+    getRowId: (row) => row.id,
   })
+
+  const selectedIds = table.getFilteredSelectedRowModel().rows.map(
+    (r) => r.original.id
+  )
+  const hasSelection = selectedIds.length > 0
 
   if (isLoading) {
     return <div className="text-center py-8">Loading campaigns...</div>
@@ -465,6 +528,47 @@ export function CampaignsList() {
           )}
         </div>
         <div className="flex gap-2">
+          {hasSelection && (
+            <Dialog
+              open={bulkDeleteDialogOpen}
+              onOpenChange={setBulkDeleteDialogOpen}
+            >
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBulkDeleteDialogOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-1.5" />
+                Delete {selectedIds.length} selected
+              </Button>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete selected campaigns</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to delete {selectedIds.length} campaign
+                    (s)? This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setBulkDeleteDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => bulkDeleteMutation.mutate(selectedIds)}
+                    disabled={bulkDeleteMutation.isPending}
+                  >
+                    {bulkDeleteMutation.isPending
+                      ? "Deleting..."
+                      : `Delete ${selectedIds.length} campaign(s)`}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
           <Button
             variant="ghost"
             size="sm"
