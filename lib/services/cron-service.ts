@@ -205,6 +205,7 @@ export async function processScheduledEmails(): Promise<{
             data: {
               status: EmailRecipientStatus.SENT,
               sentAt: new Date(),
+              resendEmailId: result.resendEmailId ?? undefined,
             },
           })
           if (updateResult.count > 0) {

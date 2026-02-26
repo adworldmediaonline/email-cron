@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { RecipientsTable } from "@/components/emails/recipients-table"
 import { toast } from "sonner"
 
 export default function EditEmailPage() {
@@ -124,7 +125,7 @@ export default function EditEmailPage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-8">
           <EmailForm
             onSubmit={handleSubmit}
             defaultValues={{
@@ -137,6 +138,34 @@ export default function EditEmailPage() {
             }}
             isLoading={updateMutation.isPending}
           />
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium">Recipients</h3>
+            <RecipientsTable
+              recipients={
+                campaign.recipients?.map(
+                  (r: {
+                    id: string
+                    recipientEmail: string
+                    recipientName: string | null
+                    status: string
+                    sentAt: Date | null
+                    lastEvent: string | null
+                    errorMessage: string | null
+                    resendEmailId: string | null
+                  }) => ({
+                    id: r.id,
+                    recipientEmail: r.recipientEmail,
+                    recipientName: r.recipientName,
+                    status: r.status,
+                    sentAt: r.sentAt,
+                    lastEvent: r.lastEvent,
+                    errorMessage: r.errorMessage,
+                    resendEmailId: r.resendEmailId,
+                  })
+                ) ?? []
+              }
+            />
+          </div>
         </CardContent>
       </Card>
     </div>
