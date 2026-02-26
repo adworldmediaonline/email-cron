@@ -163,17 +163,32 @@ model EmailCampaign {
 }
 
 model EmailRecipient {
-  id            String              @id @default(uuid())
-  campaignId    String
-  recipientEmail String
-  recipientName  String?
-  status        EmailRecipientStatus @default(pending)
-  sentAt        DateTime?
-  errorMessage  String?
-  createdAt     DateTime            @default(now())
-  campaign      EmailCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id              String              @id @default(uuid())
+  campaignId      String
+  recipientEmail  String
+  recipientName   String?
+  status          EmailRecipientStatus @default(pending)
+  sentAt          DateTime?
+  errorMessage    String?
+  resendEmailId   String?
+  lastEvent       String?
+  createdAt       DateTime            @default(now())
+  campaign        EmailCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@index([campaignId])
   @@index([status])
+  @@index([resendEmailId])
   @@map("email_recipient")
+}
+
+model WebhookEvent {
+  id        String   @id @default(uuid())
+  svixId    String   @unique
+  type      String
+  emailId   String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([emailId])
+  @@map("webhook_event")
 }

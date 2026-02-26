@@ -210,17 +210,24 @@ export interface SendBulkEmailsOptions {
  * Send bulk emails via Resend batch API (up to 100 per call).
  * Uses idempotency keys per batch for safe retries.
  */
+export interface SendBulkEmailResult {
+  to: string
+  success: boolean
+  error?: string
+  resendEmailId?: string
+}
+
 export async function sendBulkEmails(
   emails: Array<{ to: string; subject: string; html: string; text?: string }>,
   options?: SendBulkEmailsOptions
-): Promise<Array<{ to: string; success: boolean; error?: string }>> {
+): Promise<SendBulkEmailResult[]> {
   const batchSize = Math.min(options?.batchSize ?? 10, 100)
   const delayBetweenBatches = options?.delayBetweenBatches ?? 1000
   const from = options?.from || getDefaultFrom()
   const replyTo = options?.replyTo || getReplyTo()
   const headers = getListUnsubscribeHeaders()
 
-  const results: Array<{ to: string; success: boolean; error?: string }> = []
+  const results: SendBulkEmailResult[] = []
 
   for (let i = 0; i < emails.length; i += batchSize) {
     const batch = emails.slice(i, i + batchSize)
@@ -256,6 +263,7 @@ export async function sendBulkEmails(
             to: batch[idx]?.to ?? "unknown",
             success: !!item?.id,
             error: item?.id ? undefined : "No email ID returned",
+            resendEmailId: item?.id,
           })
         })
       } else {
@@ -279,6 +287,27 @@ export async function sendBulkEmails(
   }
 
   return results
+}
+
+/**
+ * Retrieve email details from Resend by ID.
+ */
+export async function getEmailById(
+  resendEmailId: string
+): Promise<{ success: boolean; data?: Record<string, unknown>; error?: string }> {
+  try {
+    const resend = getResendClient()
+    const { data, error } = await resend.emails.get(resendEmailId)
+    if (error) {
+      return { success: false, error: error.message || "Failed to fetch email" }
+    }
+    return { success: true, data: data as unknown as Record<string, unknown> }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    }
+  }
 }
 
 /**

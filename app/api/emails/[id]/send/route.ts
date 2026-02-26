@@ -89,6 +89,7 @@ export async function POST(
           data: {
             status: EmailRecipientStatus.SENT,
             sentAt: new Date(),
+            resendEmailId: result.resendEmailId ?? undefined,
           },
         })
         successCount++
