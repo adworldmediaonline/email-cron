@@ -248,19 +248,15 @@ export function RecipientsTable({ recipients }: RecipientsTableProps) {
                   )}
                 </TableCell>
                 <TableCell>
-                  {recipient.resendEmailId ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDetailsRecipientId(recipient.id)}
-                      className="h-8 px-2"
-                    >
-                      <Info className="h-4 w-4" />
-                      <span className="sr-only">View details</span>
-                    </Button>
-                  ) : (
-                    <span className="text-muted-foreground text-xs">-</span>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDetailsRecipientId(recipient.id)}
+                    className="h-8 px-2 text-primary hover:text-primary"
+                  >
+                    <Info className="h-4 w-4 mr-1.5" />
+                    View details
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
